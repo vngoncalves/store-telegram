@@ -1,40 +1,71 @@
-# Telegram Store — arquivo Python único e armazenamento JSON
+# Telegram Store
 
-Loja Telegram com catálogo, saldo em reais, cadastro de produtos e licenças, compra confirmada, entrega automática e histórico. O `/start` abre um novo menu; comandos, botões, respostas e atualizações posteriores editam o painel existente, cujo identificador é preservado no JSON.
+Loja no Telegram com catálogo, saldo em reais, recarga via Pix (ROASClub), cadastro de produtos e licenças, compra confirmada, entrega automática e histórico de compras. Os dados ficam em um arquivo JSON local, sem precisar de banco de dados.
 
-Em **Minhas compras**, cada pedido é exibido em um painel com site, login e senha, botões para copiar os dados e acessar o site, e setas para navegar do pedido mais recente aos anteriores.
+O bot mantém um único painel por conversa: `/start` abre um menu novo, e os botões, comandos e avisos posteriores editam esse mesmo painel. Em **Minhas compras**, cada pedido mostra site, login e senha, com botões para copiar os dados e abrir o site, e setas para navegar entre os pedidos.
+
+## Estrutura do projeto
+
+```text
+store-telegram/
+├── store_bot.py          # ponto de entrada: python store_bot.py
+├── iniciar.bat           # Windows: prepara o ambiente e inicia o bot
+├── requirements.txt      # dependências (qrcode[pil])
+├── .env.example          # modelo de configuração (copie para .env)
+├── loja/                 # código do bot
+│   ├── app.py            # inicialização e laço principal
+│   ├── config.py         # leitura do .env
+│   ├── handlers.py       # comandos, botões, compras e fluxo Pix
+│   ├── panels.py         # painel ativo de cada conversa
+│   ├── views.py          # textos das telas e QR Code do Pix
+│   ├── keyboards.py      # botões inline
+│   ├── telegram_api.py   # chamadas à Bot API do Telegram
+│   ├── payments.py       # integração com a ROASClub
+│   ├── storage.py        # armazenamento em JSON
+│   ├── security.py       # criptografia das licenças (DPAPI do Windows)
+│   └── validators.py     # validação de valores, IDs e CPF
+├── tests/                # testes com Telegram e ROASClub simulados
+└── data/                 # criada automaticamente; NÃO vai para o GitHub
+```
 
 ## Requisitos
 
-- Python 3.10 ou superior
-- Windows (a proteção das credenciais usa DPAPI nativo)
-- Token de bot do Telegram
-- Conexão com a internet
-- Dependências listadas em `requirements.txt` para gerar a imagem do QR Pix
+- Windows (as credenciais das licenças são protegidas com o DPAPI do Windows)
+- Python 3.10 ou superior, marcado no PATH durante a instalação
+- Git
+- Token de bot do Telegram (@BotFather) e credenciais da ROASClub
 
-Toda a aplicação está no arquivo `store_bot.py`; os dados ficam em JSON. Não precisa instalar MySQL, Workbench ou servidor de banco de dados.
-
-## 1. Instalar
-
-Abra o PowerShell dentro da pasta do projeto:
+## 1. Baixar
 
 ```powershell
-python --version
+git clone https://github.com/vngoncalves/store-telegram.git
+cd store-telegram
+```
+
+## 2. Instalar e iniciar
+
+**Forma rápida:** dê dois cliques em `iniciar.bat` ou rode `.\iniciar.bat` no terminal. Na primeira vez ele:
+
+1. cria o ambiente virtual `.venv`;
+2. instala as dependências;
+3. cria o `.env` a partir do `.env.example` e o abre no Bloco de Notas.
+
+Preencha o `.env` (seção 3), salve e rode `iniciar.bat` de novo.
+
+**Forma manual (PowerShell):**
+
+```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
-```
-
-O pacote `qrcode[pil]` gera localmente a imagem PNG a partir do código Pix retornado pela ROASClub.
-
-## 2. Configurar
-
-Copie o modelo e preencha o `.env` (ele fica na mesma pasta do `store_bot.py`):
-
-```powershell
 Copy-Item .env.example .env
 notepad .env
+python store_bot.py
 ```
+
+Se o PowerShell bloquear o `Activate.ps1`, rode antes `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
+
+## 3. Configurar o `.env`
 
 ```env
 BOT_TOKEN=TOKEN_DO_BOTFATHER
@@ -51,22 +82,27 @@ ROASCLUB_CUSTOMER_CPF=00000000000
 ROASCLUB_CUSTOMER_PHONE=11999998888
 ```
 
-- `ADMIN_IDS` aceita mais de um administrador separado por vírgula.
-- `STORE_CHANNEL` e `SUPPORT_USERNAME` (sem `@`) aparecem no menu principal.
-- `ROASCLUB_CUSTOMER_*` é o pagador enviado à ROASClub em todas as cobranças (veja a seção 6).
-- O `.env` e a pasta `data/` **nunca** devem ir para o GitHub: estão no `.gitignore`. Não os coloque dentro de um `.zip` no repositório, porque o `.gitignore` não vale para o conteúdo de arquivos compactados.
+- `ADMIN_IDS` aceita vários administradores separados por vírgula. Para descobrir seu ID, fale com o @userinfobot.
+- `SUPPORT_USERNAME` e `STORE_CHANNEL` são escritos sem `@` e aparecem no menu principal.
+- `ROASCLUB_CUSTOMER_*` é o pagador enviado à ROASClub em todas as cobranças (seção 8).
+- O `.env` e a pasta `data/` **nunca** devem ir para o GitHub: os dois estão no `.gitignore`. Também não coloque esses arquivos dentro de um `.zip` no repositório, porque o `.gitignore` não protege o conteúdo de arquivos compactados.
 
-## 3. Executar
+## 4. O que acontece ao iniciar
 
-```powershell
-python store_bot.py
-```
+Ao iniciar, o bot:
 
-Na inicialização o bot confere o `.env`, testa o token com o Telegram (`getMe`), remove um webhook antigo, se houver (o modo de recebimento por polling não funciona com webhook ativo), e avisa se a recarga Pix está desativada por falta de configuração. Depois envie `/start` ao bot.
+1. confere o `.env`;
+2. testa o token com o Telegram;
+3. remove um webhook antigo, se houver (ele impede o recebimento das mensagens);
+4. avisa se a recarga Pix está desativada por falta de configuração.
 
-Se aparecer *"terminated by other getUpdates request"*, há outra cópia do bot rodando com o mesmo token: feche-a.
+Depois disso, envie `/start` ao bot. Para encerrar, use `Ctrl+C`.
 
-## 3.1 Testes
+Se aparecer *"terminated by other getUpdates request"*, há outra cópia do bot rodando com o mesmo token. Feche-a.
+
+**Migrando de uma instalação anterior:** copie a pasta `data/` antiga para dentro de `store-telegram/`. Rode o bot com a mesma conta do Windows e no mesmo computador; caso contrário, as licenças já cadastradas não podem ser lidas (seção 9).
+
+## 5. Testes
 
 Os testes simulam o Telegram e a ROASClub e não acessam a internet:
 
@@ -74,13 +110,13 @@ Os testes simulam o Telegram e a ROASClub e não acessam a internet:
 python -m unittest discover -s tests -v
 ```
 
-## 4. Dados e backup
+## 6. Dados e backup
 
 Todos os dados persistentes ficam em `data/store.json`. Se esse arquivo ainda não existir e o antigo `data/store.txt` estiver presente, o bot migra os dados automaticamente na primeira leitura. O TXT original é preservado como backup; depois de confirmar que o JSON foi criado corretamente, você pode guardá-lo em local seguro.
 
 Para fazer backup, copie `data/store.json` com o bot parado. Guarde cópias em local seguro.
 
-## 5. Comandos
+## 7. Comandos
 
 - `/admin` — painel administrativo
 - `/saldo ID_TELEGRAM 50.00` — adiciona R$ 50,00
@@ -89,7 +125,7 @@ Para fazer backup, copie `data/store.json` com o bot parado. Guarde cópias em l
 
 Os comandos `/admin` e `/saldo` são restritos aos administradores. No painel, cadastre produtos, adicione licenças e reenvie entregas pendentes.
 
-## 6. Recarga via Pix
+## 8. Recarga via Pix
 
 O botão **Adicionar saldo** ou o comando `/pix` exige um mínimo de R$ 10,00 e cria uma cobrança em `POST /v1/payment-transaction/create` com Basic Auth e validade de 1 dia (24 horas). A tela mostra a expiração exata informada pela ROASClub. O fluxo pede somente o valor. A ROASClub exige dados de cliente (nome, e-mail, CPF e telefone); o bot envia os dados configurados em `ROASCLUB_CUSTOMER_*` no `.env`. Use dados reais e confirme com a ROASClub que esse cadastro padrão é permitido. O bot **não** gera nomes ou CPFs fictícios. Se esses campos estiverem ausentes ou inválidos, a recarga Pix fica desativada e o motivo aparece no terminal. O bot consulta `GET /v1/payment-transaction/info/{id}` automaticamente a cada 30 segundos e também permite consulta manual pelo botão **Verificar pagamento**. As consultas são espaçadas para respeitar a janela de 2 segundos informada pela API. Quando a ROASClub confirma o status `PAID`, o bot credita o valor integral da cobrança uma única vez.
 
@@ -99,7 +135,7 @@ Configure `ROASCLUB_PUBLIC_KEY` e `ROASCLUB_SECRET_KEY` no `.env` com as credenc
 
 Esta integração usa somente cobranças Pix; não realiza cobranças com cartão/boleto nem saques.
 
-## 7. Segurança e limitações
+## 9. Segurança e limitações
 
 - As credenciais de licença são protegidas com DPAPI do Windows antes de serem gravadas no JSON.
 - Para descriptografar, execute o bot com a mesma conta do Windows e no mesmo computador que cadastrou as credenciais.

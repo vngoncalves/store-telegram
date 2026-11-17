@@ -1,4 +1,4 @@
-"""Testes de ponta a ponta do store_bot com Telegram e ROASClub simulados.
+"""Testes de ponta a ponta do bot (pacote loja) com Telegram e ROASClub simulados.
 
 Executar na pasta do projeto:  python -m unittest discover -s tests -v
 Nenhuma chamada real é feita à internet; os dados ficam numa pasta temporária.
@@ -27,7 +27,9 @@ os.environ.update({
     "ROASCLUB_CUSTOMER_PHONE": "(11) 99999-8888",
 })
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import store_bot as bot  # noqa: E402
+from loja import (  # noqa: E402
+    app, config, handlers, panels, payments, security, storage, telegram_api, validators,
+)
 
 ADMIN = 1
 USER = 500
@@ -120,44 +122,47 @@ def fake_decrypt(encoded):
 
 class BotTestCase(unittest.TestCase):
     def setUp(self):
-        if bot._PATH.exists():
-            bot._PATH.unlink()
-        bot.ACTIVE_MENUS.clear()
-        bot.ACTIVE_PIX_DEPOSITS.clear()
-        bot.STATES.clear()
+        if storage._PATH.exists():
+            storage._PATH.unlink()
+        panels.ACTIVE_MENUS.clear()
+        handlers.ACTIVE_PIX_DEPOSITS.clear()
+        handlers.STATES.clear()
         self.tg = FakeTelegram()
         self.roas = FakeRoasClub()
         self._originals = {
-            name: getattr(bot, name)
-            for name in ("call", "send_photo", "roas_api_call", "encrypt_text", "decrypt_text")
+            (module, name): getattr(module, name)
+            for module, name in (
+                (telegram_api, "call"), (telegram_api, "send_photo"), (payments, "roas_api_call"),
+                (security, "encrypt_text"), (security, "decrypt_text"),
+            )
         }
-        bot.call = self.tg.call
-        bot.send_photo = self.tg.send_photo
-        bot.roas_api_call = self.roas
-        bot.encrypt_text = fake_encrypt
-        bot.decrypt_text = fake_decrypt
+        telegram_api.call = self.tg.call
+        telegram_api.send_photo = self.tg.send_photo
+        payments.roas_api_call = self.roas
+        security.encrypt_text = fake_encrypt
+        security.decrypt_text = fake_decrypt
 
     def tearDown(self):
-        for name, value in self._originals.items():
-            setattr(bot, name, value)
+        for (module, name), value in self._originals.items():
+            setattr(module, name, value)
 
     # Auxiliares que imitam o que o Telegram envia ao bot
     def send(self, user_id, text):
-        bot.process_update({"update_id": 1, "message": {
+        handlers.process_update({"update_id": 1, "message": {
             "chat": {"id": user_id}, "from": {"id": user_id, "first_name": "T"}, "text": text,
         }})
 
     def click(self, user_id, data, message_id=None):
-        message_id = message_id or bot.active_menu_message_id(user_id)
+        message_id = message_id or panels.active_menu_message_id(user_id)
         message = {"chat": {"id": user_id}, "message_id": message_id}
         if self.tg.messages.get((user_id, message_id), {}).get("kind") == "photo":
             message["photo"] = [{"file_id": "x"}]
-        bot.process_update({"update_id": 2, "callback_query": {
+        handlers.process_update({"update_id": 2, "callback_query": {
             "id": "cb", "from": {"id": user_id, "first_name": "T"}, "message": message, "data": data,
         }})
 
     def screen(self, user_id):
-        message_id = bot.active_menu_message_id(user_id)
+        message_id = panels.active_menu_message_id(user_id)
         return self.tg.messages[(user_id, message_id)]
 
     def create_product_with_license(self, price="29,90"):
@@ -177,27 +182,27 @@ class BotTestCase(unittest.TestCase):
 
 class StartupTests(BotTestCase):
     def test_startup_checks_pass_with_valid_config(self):
-        self.assertTrue(bot.startup_checks())
+        self.assertTrue(app.startup_checks())
         self.assertEqual(self.tg.methods()[:2], ["getMe", "deleteWebhook"])
 
     def test_startup_fails_cleanly_with_bad_token(self):
         self.tg.fail_next["getMe"] = "Telegram HTTP 401: Unauthorized"
-        self.assertFalse(bot.startup_checks())
+        self.assertFalse(app.startup_checks())
 
     def test_config_errors_detect_placeholders(self):
-        original = (bot.BOT_TOKEN, bot.ADMIN_IDS, bot._RAW_ADMIN_IDS)
+        original = (config.BOT_TOKEN, config.ADMIN_IDS, config._RAW_ADMIN_IDS)
         try:
-            bot.BOT_TOKEN, bot.ADMIN_IDS, bot._RAW_ADMIN_IDS = "TOKEN_DO_BOTFATHER", set(), ["SEU_ID"]
-            errors = bot.config_errors()
+            config.BOT_TOKEN, config.ADMIN_IDS, config._RAW_ADMIN_IDS = "TOKEN_DO_BOTFATHER", set(), ["SEU_ID"]
+            errors = config.config_errors()
             self.assertEqual(len(errors), 3)
         finally:
-            bot.BOT_TOKEN, bot.ADMIN_IDS, bot._RAW_ADMIN_IDS = original
+            config.BOT_TOKEN, config.ADMIN_IDS, config._RAW_ADMIN_IDS = original
 
 
 class MenuTests(BotTestCase):
     def test_start_creates_user_and_panel(self):
         self.send(USER, "/start")
-        self.assertIsNotNone(bot.get_user(USER))
+        self.assertIsNotNone(storage.get_user(USER))
         content = self.screen(USER)["content"]
         self.assertIn("Saldo: R$ 0,00", content)
         self.assertIn("@suporte_teste", content)
@@ -209,10 +214,10 @@ class MenuTests(BotTestCase):
 
     def test_deleted_panel_is_recreated(self):
         self.send(USER, "/start")
-        old_id = bot.active_menu_message_id(USER)
+        old_id = panels.active_menu_message_id(USER)
         del self.tg.messages[(USER, old_id)]
         self.send(USER, "/cancel")
-        self.assertNotEqual(bot.active_menu_message_id(USER), old_id)
+        self.assertNotEqual(panels.active_menu_message_id(USER), old_id)
         self.assertIn("Carteira", self.screen(USER)["content"])
 
     def test_clicking_same_button_twice_is_harmless(self):
@@ -232,7 +237,7 @@ class PurchaseTests(BotTestCase):
         self.create_product_with_license("29,90")
         self.send(USER, "/start")
         self.send(ADMIN, f"/saldo {USER} 50,00")
-        self.assertEqual(bot.get_user(USER)["balance"], "50.00")
+        self.assertEqual(storage.get_user(USER)["balance"], "50.00")
 
         self.click(USER, "catalog")
         self.assertIn("Curso Teste", self.screen(USER)["content"])
@@ -241,25 +246,25 @@ class PurchaseTests(BotTestCase):
         delivered = self.screen(USER)["content"]
         self.assertIn("COMPRA CONFIRMADA", delivered)
         self.assertIn("s3nh@&lt;forte&gt;", delivered)  # HTML escapado
-        self.assertEqual(bot.get_user(USER)["balance"], "20.10")
-        self.assertEqual(bot.user_orders(USER)[0]["status"], "completed")
-        self.assertEqual(bot.list_products()[0]["stock"], 0)
+        self.assertEqual(storage.get_user(USER)["balance"], "20.10")
+        self.assertEqual(storage.user_orders(USER)[0]["status"], "completed")
+        self.assertEqual(storage.list_products()[0]["stock"], 0)
 
         self.click(USER, "history")
         self.assertIn("Compra 1 de 1", self.screen(USER)["content"])
 
-        bot.add_balance(USER, Decimal("100"))
+        storage.add_balance(USER, Decimal("100"))
         self.click(USER, "buy:1")  # sem estoque
         self.assertIn("Estoque esgotado", self.screen(USER)["content"])
-        self.assertEqual(bot.get_user(USER)["balance"], "120.10")
+        self.assertEqual(storage.get_user(USER)["balance"], "120.10")
 
     def test_insufficient_balance_does_not_create_order(self):
         self.create_product_with_license("29,90")
         self.send(USER, "/start")
         self.click(USER, "buy:1")
         self.assertIn("Saldo insuficiente", self.screen(USER)["content"])
-        self.assertEqual(bot.user_orders(USER), [])
-        self.assertEqual(bot.list_products()[0]["stock"], 1)
+        self.assertEqual(storage.user_orders(USER), [])
+        self.assertEqual(storage.list_products()[0]["stock"], 1)
 
     def test_admin_input_validation_messages(self):
         self.send(ADMIN, "/start")
@@ -271,7 +276,7 @@ class PurchaseTests(BotTestCase):
         self.send(ADMIN, "10,999")
         self.assertIn("duas casas decimais", self.screen(ADMIN)["content"])
         self.send(ADMIN, "R$ 10,50")
-        self.assertEqual(bot.get_product(1)["price"], Decimal("10.50"))
+        self.assertEqual(storage.get_product(1)["price"], Decimal("10.50"))
         self.click(ADMIN, "adm:add_license")
         self.send(ADMIN, "xyz")
         self.assertIn("número do produto", self.screen(ADMIN)["content"])
@@ -282,32 +287,32 @@ class PurchaseTests(BotTestCase):
         self.assertIn("Usuário não encontrado", self.screen(ADMIN)["content"])
         self.send(USER, "/start")
         self.send(ADMIN, f"/saldo {USER} -5")
-        self.assertEqual(bot.get_user(USER)["balance"], "0.00")
+        self.assertEqual(storage.get_user(USER)["balance"], "0.00")
 
     def test_resend_delivery_to_user(self):
         self.create_product_with_license()
         self.send(USER, "/start")
-        bot.add_balance(USER, Decimal("100"))
-        original_edit = bot.edit_message
+        storage.add_balance(USER, Decimal("100"))
+        original_edit = panels.edit_message
 
         def failing_edit(chat_id, message_id, text, *args, **kwargs):
             if "COMPRA CONFIRMADA" in text:
                 raise RuntimeError("falha simulada")
             return original_edit(chat_id, message_id, text, *args, **kwargs)
 
-        bot.edit_message = failing_edit
+        panels.edit_message = failing_edit
         try:
             self.click(USER, "buy:1")
         finally:
-            bot.edit_message = original_edit
-        self.assertEqual(bot.user_orders(USER)[0]["status"], "delivery_failed")
+            panels.edit_message = original_edit
+        self.assertEqual(storage.user_orders(USER)[0]["status"], "delivery_failed")
         self.assertIn("t.me/suporte_teste", json.dumps(self.tg.calls[-1][1], ensure_ascii=False))
 
         self.click(ADMIN, "adm:resend")
         self.send(ADMIN, "#1")
         self.assertIn("Entrega reenviada", self.screen(ADMIN)["content"])
         self.assertIn("COMPRA CONFIRMADA", self.screen(USER)["content"])
-        self.assertEqual(bot.user_orders(USER)[0]["status"], "completed")
+        self.assertEqual(storage.user_orders(USER)[0]["status"], "completed")
 
 
 class PixTests(BotTestCase):
@@ -327,27 +332,27 @@ class PixTests(BotTestCase):
         })
         self.assertEqual(self.screen(USER)["kind"], "photo")
 
-        deposit_id = bot.ACTIVE_PIX_DEPOSITS[USER]
+        deposit_id = handlers.ACTIVE_PIX_DEPOSITS[USER]
         self.click(USER, f"pix:check:{deposit_id}")
         self.assertEqual(self.screen(USER)["kind"], "photo")  # QR continua visível
         self.assertIn("ainda não confirmado", self.screen(USER)["content"])
-        self.assertEqual(bot.get_user(USER)["balance"], "0.00")
+        self.assertEqual(storage.get_user(USER)["balance"], "0.00")
 
         self.roas.status = "PAID"
-        bot.reconcile_pix_deposits()
-        bot.reconcile_pix_deposits()
-        self.assertEqual(bot.get_user(USER)["balance"], "25.50")
+        handlers.reconcile_pix_deposits()
+        handlers.reconcile_pix_deposits()
+        self.assertEqual(storage.get_user(USER)["balance"], "25.50")
         self.assertEqual(self.screen(USER)["kind"], "text")
         self.assertIn("Recarga Pix confirmada", self.screen(USER)["content"])
 
         self.click(USER, f"pix:check:{deposit_id}")
-        self.assertEqual(bot.get_user(USER)["balance"], "25.50")
+        self.assertEqual(storage.get_user(USER)["balance"], "25.50")
 
     def test_cancel_from_qr_returns_to_text_menu(self):
         self.send(USER, "/start")
         self.click(USER, "wallet:deposit")
         self.send(USER, "10")
-        qr_id = bot.active_menu_message_id(USER)
+        qr_id = panels.active_menu_message_id(USER)
         self.click(USER, "home")
         self.assertNotIn((USER, qr_id), self.tg.messages)
         self.assertIn("Carteira", self.screen(USER)["content"])
@@ -358,47 +363,47 @@ class PixTests(BotTestCase):
         self.send(USER, "50")
         self.roas.status = "PAID"
         self.roas.amount_override = 100
-        bot.reconcile_pix_deposits()
-        self.assertEqual(bot.get_user(USER)["balance"], "0.00")
+        handlers.reconcile_pix_deposits()
+        self.assertEqual(storage.get_user(USER)["balance"], "0.00")
 
     def test_expired_charge_is_marked_failed(self):
         self.send(USER, "/start")
         self.click(USER, "wallet:deposit")
         self.send(USER, "15")
         self.roas.status = "EXPIRED"
-        bot.reconcile_pix_deposits()
-        self.assertEqual(bot.pending_pix_deposits(), [])
+        handlers.reconcile_pix_deposits()
+        self.assertEqual(storage.pending_pix_deposits(), [])
         self.assertIn("não foi confirmada", self.screen(USER)["content"])
 
     def test_pix_unavailable_without_payer_config(self):
-        original = bot.ROASCLUB_CUSTOMER_CPF
-        bot.ROASCLUB_CUSTOMER_CPF = "11111111111"
+        original = config.ROASCLUB_CUSTOMER_CPF
+        config.ROASCLUB_CUSTOMER_CPF = "11111111111"
         try:
             self.send(USER, "/start")
             self.click(USER, "wallet:deposit")
             self.assertIn("indisponível", self.screen(USER)["content"])
             self.assertEqual(self.roas.created, [])
         finally:
-            bot.ROASCLUB_CUSTOMER_CPF = original
+            config.ROASCLUB_CUSTOMER_CPF = original
 
     def test_no_fake_payer_generator(self):
-        self.assertFalse(hasattr(bot, "generate_customer"))
-        self.assertFalse(hasattr(bot, "generate_cpf"))
+        self.assertFalse(hasattr(payments, "generate_customer"))
+        self.assertFalse(hasattr(validators, "generate_cpf"))
 
 
 class ParsingTests(unittest.TestCase):
     def test_parse_amounts(self):
-        self.assertEqual(bot.parse_amount_cents("10"), 1000)
-        self.assertEqual(bot.parse_amount_cents("10,5"), 1050)
-        self.assertEqual(bot.parse_amount_cents("R$ 1234.56"), 123456)
+        self.assertEqual(validators.parse_amount_cents("10"), 1000)
+        self.assertEqual(validators.parse_amount_cents("10,5"), 1050)
+        self.assertEqual(validators.parse_amount_cents("R$ 1234.56"), 123456)
         for bad in ("", "-1", "0", "1.2.3", "1,234", "abc", "NaN", "Infinity", "1e5"):
             with self.assertRaises(ValueError, msg=bad):
-                bot.parse_amount_cents(bad)
+                validators.parse_amount_cents(bad)
 
     def test_parse_id(self):
-        self.assertEqual(bot.parse_id(" #12 ", "pedido"), 12)
+        self.assertEqual(validators.parse_id(" #12 ", "pedido"), 12)
         with self.assertRaises(ValueError):
-            bot.parse_id("0", "pedido")
+            validators.parse_id("0", "pedido")
 
 
 if __name__ == "__main__":
