@@ -9,7 +9,7 @@ def inline(rows):
 
 def main_menu(admin=False):
     rows = [
-        [{"text": "🛍 Produtos", "callback_data": "catalog"}],
+        [{"text": "🛒 Logins", "callback_data": "catalog"}],
         [{"text": "👤 Meu perfil", "callback_data": "profile"},
          {"text": "💰 Adicionar saldo", "callback_data": "wallet:deposit"}],
     ]

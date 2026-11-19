@@ -186,27 +186,13 @@ def profile_view(user_id):
     return "\n".join(lines), keyboards.profile_menu(link)
 
 
-def greeting(now=None):
-    """Saudação pela hora local: bom dia (5h–11h), boa tarde (12h–17h), boa noite (18h–4h)."""
-    hour = (now or datetime.now()).hour
-    if 5 <= hour < 12:
-        return "☀️", "Bom dia"
-    if 12 <= hour < 18:
-        return "🌤", "Boa tarde"
-    return "🌙", "Boa noite"
-
-
-def home_text(user_id, now=None):
+def home_text(user_id):
     user = storage.get_user(user_id) or {"balance": "0.00"}
     settings = storage.get_settings()
-    icon, salutation = greeting(now)
-    name = escape(user.get("first_name") or "")
-    lines = [f"{icon} <b>{salutation}{', ' + name if name else ''}!</b> 👋", ""]
+    lines = ["👋 <b>Seja bem-vindo(a) a maior loja de logins do telegram!</b>", ""]
     notices = [line for line in settings["home_notices"].split("\n") if line.strip()]
     if notices:
         lines += [f"<b>{escape(line.strip())}</b>" for line in notices] + [""]
-    if config.STORE_CHANNEL:
-        lines += [f"🔔 <b>Canal: @{escape(config.STORE_CHANNEL)}</b>", ""]
     lines += [
         "<b>🏦 Carteira:</b>",
         f"<b> ├ ID:</b> <code>{user_id}</code>",

@@ -245,7 +245,6 @@ class MenuTests(BotTestCase):
         self.assertIsNotNone(storage.get_user(USER))
         content = self.screen(USER)["content"]
         self.assertIn("Saldo: R$ 0,00", content)
-        self.assertIn("@canal_teste", content)
         self.assertIn("Acesse sempre via navegador 4G!", content)
         self.assertIn(f"<code>{USER}</code>", content)
         rows = json.loads(self.tg.calls[-1][1]["reply_markup"])["inline_keyboard"]
@@ -1212,17 +1211,16 @@ class ProductImageTests(BotTestCase):
 class HomeMenuTests(BotTestCase):
     IMAGE = "https://i.imgur.com/menu50off.jpg"
 
-    def test_greeting_by_time_of_day(self):
-        from datetime import datetime as dt
+    def test_welcome_line_wallet_and_no_channel(self):
         from loja import views
-        self.assertEqual(views.greeting(dt(2026, 1, 1, 8)), ("☀️", "Bom dia"))
-        self.assertEqual(views.greeting(dt(2026, 1, 1, 14)), ("🌤", "Boa tarde"))
-        self.assertEqual(views.greeting(dt(2026, 1, 1, 20)), ("🌙", "Boa noite"))
-        self.assertEqual(views.greeting(dt(2026, 1, 1, 3)), ("🌙", "Boa noite"))
         self.send(USER, "/start")
-        text = views.home_text(USER, dt(2026, 1, 1, 20))
-        self.assertTrue(text.startswith("🌙 <b>Boa noite, T!</b> 👋"))
+        text = views.home_text(USER)
+        self.assertTrue(text.startswith("👋 <b>Seja bem-vindo(a) a maior loja de logins do telegram!</b>"))
         self.assertIn("<b>🏦 Carteira:</b>\n<b> ├ ID:</b> <code>500</code>\n<b> ├💰 Saldo: R$ 0,00</b>", text)
+        self.assertNotIn("Canal", text)  # mesmo com STORE_CHANNEL preenchido no .env
+        self.assertNotIn("Boa noite", text)
+        rows = json.loads(self.tg.calls[-1][1]["reply_markup"])["inline_keyboard"]
+        self.assertEqual(rows[0][0], {"text": "🛒 Logins", "callback_data": "catalog"})
 
     def test_menu_is_photo_with_caption_and_buttons(self):
         storage.update_settings(home_image_url=self.IMAGE)
