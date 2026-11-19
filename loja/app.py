@@ -2,7 +2,7 @@
 import os
 import time
 
-from . import config, handlers, payments, storage, telegram_api
+from . import config, handlers, logs, payments, storage, telegram_api
 
 
 def startup_checks():
@@ -14,6 +14,7 @@ def startup_checks():
         return False
     try:
         storage._read()
+        storage._read_products()
     except (RuntimeError, OSError) as exc:
         print("Não foi possível abrir o arquivo de dados:", exc)
         return False
@@ -29,6 +30,10 @@ def startup_checks():
         telegram_api.call("deleteWebhook", {"drop_pending_updates": "false"})
     except Exception as exc:
         print("Aviso: não foi possível remover um webhook existente:", exc)
+    try:
+        logs.startup_report()
+    except Exception as exc:
+        print("Aviso: não foi possível verificar o canal de logs:", exc)
     problems = payments.pix_config_problems()
     if problems:
         print("Aviso: recarga via Pix desativada —", "; ".join(problems) + ".")
@@ -38,9 +43,19 @@ def startup_checks():
 
 
 def main():
+    if not storage.acquire_instance_lock():
+        print("Já existe outra cópia do bot rodando nesta pasta. Feche-a antes de abrir de novo.")
+        raise SystemExit(1)
     if not startup_checks():
         raise SystemExit(1)
+    try:
+        folder = storage.backup_data()
+        if folder:
+            print("Backup dos dados salvo em:", folder)
+    except OSError as exc:
+        print("Aviso: não foi possível fazer o backup automático:", exc)
     print("Telegram Store iniciado. Dados em:", storage._PATH)
+    print("Catálogo de produtos em:", storage._PRODUCTS_PATH)
     offset = None
     last_payment_check = 0
     while True:
@@ -54,6 +69,7 @@ def main():
                     print(f"Erro ao processar a atualização {update['update_id']}:", exc)
         except KeyboardInterrupt:
             print("\nBot encerrado.")
+            logs.flush()
             break
         except Exception as exc:
             print("Erro no loop:", exc)
@@ -65,6 +81,7 @@ def main():
                 handlers.reconcile_pix_deposits()
             except KeyboardInterrupt:
                 print("\nBot encerrado.")
+                logs.flush()
                 break
             except Exception as exc:
                 print("Erro ao verificar cobranças Pix:", exc)

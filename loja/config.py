@@ -57,6 +57,14 @@ STORE_CHANNEL = os.getenv("STORE_CHANNEL", "").strip().lstrip("@")
 DATA_FILE = os.getenv("DATA_FILE", "data/store.json").strip() or "data/store.json"
 
 
+# Catálogo editável (produtos + estoque de acessos). O bot relê este arquivo a cada ação.
+PRODUCTS_FILE = os.getenv("PRODUCTS_FILE", "produtos.json").strip() or "produtos.json"
+
+
+# Canal de logs (ex.: -1001234567890). Também pode ser definido no painel admin → ⚙️ Configurações.
+LOG_CHANNEL_ID = os.getenv("LOG_CHANNEL_ID", "").strip()
+
+
 POLLING_TIMEOUT = _int_env("POLLING_TIMEOUT", 30, minimum=1, maximum=50)
 
 

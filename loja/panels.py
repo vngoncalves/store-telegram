@@ -19,6 +19,24 @@ def send_new_panel(chat_id, text, reply_markup=None, replace_message_id=None):
     return new_message_id
 
 
+def send_photo_panel(chat_id, photo_url, caption, reply_markup=None, replace_message_id=None):
+    """Envia uma foto (por link) com legenda e botões, torna-a o painel ativo e remove o painel anterior.
+
+    Levanta o erro do Telegram se a imagem não puder ser usada (link quebrado, não é imagem...).
+    """
+    result = telegram_api.send_photo_url(chat_id, photo_url, caption, reply_markup)
+    if not isinstance(result, dict) or result.get("message_id") is None:
+        raise RuntimeError("Telegram não retornou o ID da foto enviada.")
+    new_message_id = result["message_id"]
+    remember_active_menu(chat_id, new_message_id, media="photo")
+    if replace_message_id is not None and replace_message_id != new_message_id:
+        try:
+            telegram_api.delete_message(chat_id, replace_message_id)
+        except Exception as exc:
+            print("Não foi possível remover o painel anterior:", exc)
+    return new_message_id
+
+
 def edit_message(chat_id, message_id, text, reply_markup=None, parse_mode="HTML", keep_photo=False):
     """Edita o painel. Um painel com foto (QR Pix) é substituído por texto, salvo keep_photo."""
     is_photo = active_menu_is_photo(chat_id, message_id)
@@ -53,6 +71,7 @@ def edit_active_panel(chat_id, text, reply_markup, keep_photo=False):
 
 
 ACTIVE_MENUS = {}
+ACTIVE_MEDIA = {}  # cache do tipo do painel ("text"/"photo"); evita ler o arquivo a cada edição
 
 
 def active_menu_is_photo(chat_id, message_id=None):
@@ -60,11 +79,15 @@ def active_menu_is_photo(chat_id, message_id=None):
         message_id = active_menu_message_id(chat_id)
     if message_id is None:
         return False
+    if ACTIVE_MENUS.get(chat_id) == message_id and chat_id in ACTIVE_MEDIA:
+        return ACTIVE_MEDIA[chat_id] == "photo"
     data = storage._read()
-    return (
-        data["active_menus"].get(str(chat_id)) == message_id
-        and data["active_menu_media"].get(str(chat_id)) == "photo"
-    )
+    is_active = data["active_menus"].get(str(chat_id)) == message_id
+    media = data["active_menu_media"].get(str(chat_id))
+    if is_active and media:
+        ACTIVE_MENUS[chat_id] = message_id
+        ACTIVE_MEDIA[chat_id] = media
+    return is_active and media == "photo"
 
 
 def active_menu_message_id(chat_id):
@@ -79,10 +102,20 @@ def active_menu_message_id(chat_id):
 
 
 def remember_active_menu(chat_id, message_id, media=None):
+    unchanged = ACTIVE_MENUS.get(chat_id) == message_id and (media is None or ACTIVE_MEDIA.get(chat_id) == media)
     ACTIVE_MENUS[chat_id] = message_id
+    if media is not None:
+        ACTIVE_MEDIA[chat_id] = media
+    if unchanged:
+        return  # o mesmo painel de antes: não precisa regravar o arquivo
     with storage._LOCK:
         data = storage._read()
-        data["active_menus"][str(chat_id)] = int(message_id)
+        key = str(chat_id)
+        if data["active_menus"].get(key) == int(message_id) and (
+            media is None or data["active_menu_media"].get(key) == media
+        ):
+            return
+        data["active_menus"][key] = int(message_id)
         if media is not None:
-            data["active_menu_media"][str(chat_id)] = media
+            data["active_menu_media"][key] = media
         storage._write(data)

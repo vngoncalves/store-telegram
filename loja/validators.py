@@ -29,11 +29,63 @@ def parse_money(text):
     return (Decimal(parse_amount_cents(text)) / Decimal(100)).quantize(Decimal("0.01"))
 
 
+def parse_money_or_zero(text):
+    """Como parse_money, mas aceita 0 (usado para desativar bônus)."""
+    if re.fullmatch(r"\s*(r\$\s*)?0+([.,]0{1,2})?\s*", text, flags=re.IGNORECASE):
+        return Decimal("0.00")
+    return parse_money(text)
+
+
 def parse_id(text, label):
     value = text.strip().lstrip("#")
     if not value.isdigit() or int(value) <= 0:
         raise ValueError(f"Envie apenas o número do {label}.")
     return int(value)
+
+
+ACCESS_FORMAT = "site | login | senha | pedidos | valor total"
+
+
+def parse_orders_count(text):
+    value = str(text).strip()
+    if not value.isdigit():
+        raise ValueError("a quantidade de pedidos deve ser um número inteiro (ex.: 12)")
+    return int(value)
+
+
+def parse_access_line(line):
+    """Uma linha de estoque: 'site | login | senha | pedidos | valor total' (o site é opcional).
+
+    Retorna (credenciais, informações): as credenciais são criptografadas; as informações ficam
+    visíveis para o cliente escolher o login.
+    """
+    parts = [part.strip() for part in line.split("|")]
+    if len(parts) == 4:
+        parts.insert(0, "")
+    if len(parts) != 5:
+        raise ValueError(f"use o formato  {ACCESS_FORMAT}")
+    url, login, password, orders, total = parts
+    if not login or not password:
+        raise ValueError("login e senha não podem ficar vazios")
+    orders_count = parse_orders_count(orders)
+    try:
+        orders_total = parse_money_or_zero(total)
+    except ValueError as exc:
+        raise ValueError(f"valor total inválido: {exc}") from exc
+    credentials = {"url": url, "login": login, "password": password}
+    return credentials, {"pedidos": orders_count, "valor_total": str(orders_total)}
+
+
+def parse_image_url(text):
+    """Link http(s) de uma imagem. Retorna '' para remover (0, -, remover)."""
+    value = text.strip()
+    if value.lower() in {"0", "-", "remover", "nenhuma"}:
+        return ""
+    if " " in value or not re.fullmatch(r"https?://[^/\s]+\.[^\s]+", value, flags=re.IGNORECASE):
+        raise ValueError("envie um link que comece com https:// (ex.: https://i.imgur.com/abc.jpg)")
+    if len(value) > 2048:
+        raise ValueError("o link é muito longo (máximo 2048 caracteres)")
+    return value
 
 
 def parse_pix_amount_cents(text):

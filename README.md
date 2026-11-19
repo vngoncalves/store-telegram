@@ -116,6 +116,36 @@ Todos os dados persistentes ficam em `data/store.json`. Se esse arquivo ainda n�
 
 Para fazer backup, copie `data/store.json` com o bot parado. Guarde cópias em local seguro.
 
+### Catálogo: `produtos.json`
+
+Os produtos e o estoque de acessos ficam em `produtos.json`, na raiz do projeto (mude com `PRODUCTS_FILE` no `.env`). O bot relê esse arquivo a cada ação, então qualquer mudança vale **na hora**, sem reiniciar. Isso inclui o painel admin, mas também uma edição feita no arquivo à mão.
+
+```json
+{
+  "proximo_id": {"produto": 2, "acesso": 3},
+  "produtos": [
+    {
+      "id": 1,
+      "nome": "Netflix 30 dias",
+      "descricao": "Tela exclusiva",
+      "preco": "19.90",
+      "ativo": true,
+      "imagem": "https://i.imgur.com/abc123.jpg",
+      "acessos": [
+        {"url": "https://site.com", "login": "conta@exemplo.com", "senha": "123", "pedidos": 12, "valor_total": "350.00"}
+      ]
+    }
+  ]
+}
+```
+
+- `imagem` (opcional) é o **link direto** de uma foto (`https://…/foto.jpg`). Ela é enviada junto da mensagem quando o cliente abre o produto e aparece como miniatura na busca. Pelo painel: produto → **🖼 Imagem**. O bot mostra uma prévia e só salva se o Telegram conseguir abrir o link. Envie `0` para remover. Se o link quebrar depois, o produto aparece só com texto, e o motivo fica no terminal (`[PRODUTO]`).
+- `acessos` é o estoque de logins. Cada login tem `pedidos` (quantidade de pedidos) e `valor_total` (soma dos pedidos), que o cliente vê antes de comprar. Na tela do produto, o cliente passa pelos logins com ⬅️ ➡️ ("Login 1 de X"), toca em **✅ Comprar** e recebe exatamente aquele login, que sai da lista.
+- Ao adicionar um produto ou acesso à mão, pode omitir `id` e `proximo_id`: o bot preenche sozinho.
+- Um acesso escrito em texto puro (`login`/`senha`) é criptografado e trocado por `"dados": "..."` na próxima leitura.
+- Se o arquivo ficar com JSON inválido, o painel admin mostra o erro e o bot volta a funcionar assim que você corrigir.
+- O arquivo está no `.gitignore`, porque guarda o estoque. Inclua `produtos.json` no backup.
+
 ## 7. Comandos
 
 - `/admin` — painel administrativo
@@ -123,7 +153,44 @@ Para fazer backup, copie `data/store.json` com o bot parado. Guarde cópias em l
 - `/pix` — inicia uma recarga via Pix
 - `/cancel` — cancela a operação em andamento
 
-Os comandos `/admin` e `/saldo` são restritos aos administradores. No painel, cadastre produtos, adicione licenças e reenvie entregas pendentes.
+Os comandos `/admin` e `/saldo` são restritos aos administradores. No painel, em **📦 Produtos e estoque**, escolha um produto para:
+
+- **➕ Adicionar acessos**: mande um por linha: `site | login | senha | pedidos | valor total` (o site é opcional, ex.: `joao@gmail.com | senha123 | 12 | 350,00`). Dá pra colar vários de uma vez e continuar mandando. A mensagem com as senhas é apagada do chat depois de salva.
+- **➖ Remover 1** / **🧹 Esvaziar estoque**: retira os acessos mais recentes.
+- **💲 Preço**, **✏️ Nome**, **📝 Descrição**, **⏸ Pausar/▶️ Ativar vendas** e **🗑 Excluir produto**. As compras já feitas continuam no histórico do cliente.
+
+### Bônus: boas-vindas e indicação
+
+Os dois bônus são configurados no painel em **⚙️ Configurações (bônus)**. Valem na hora e ficam salvos em `data/store.json` (seção `settings`).
+
+- **🎁 Boas-vindas** (padrão **R$ 10,00**): cada usuário **novo** recebe esse saldo no primeiro acesso. Quem já usava o bot não recebe. Envie `0` ou toque em ⏸ para desativar.
+- **🤝 Indicação** (padrão **R$ 5,00** por indicado): cada usuário tem um link `https://t.me/SEU_BOT?start=ID`, que aparece em **👤 Meu perfil** com o botão **📋 Copiar link**. Quem indicou recebe o bônus **uma única vez por indicado**:
+  - **assim que ele entra pelo link**, mesmo sem depositar (padrão), ou
+  - **só no 1º depósito Pix** do indicado, o que dificulta fraude com contas falsas (troque em "📌 Pagar").
+
+Só conta como indicado quem nunca tinha usado o bot. Ninguém pode indicar a si mesmo, e o indicado não pode trocar de padrinho. O bot avisa quem indicou por mensagem.
+
+### Canal de logs
+
+O bot pode publicar num canal tudo o que acontece na loja, com usuário (nome clicável, @ e ID), valores, saldo antes → depois e horário:
+
+| Evento | O que mostra |
+|---|---|
+| 👋 Novo usuário | nome, ID, bônus de boas-vindas, saldo atual, quem indicou, total de usuários |
+| 🤝 Bônus de indicação | quem indicou, indicado, valor, saldo de quem indicou, nº de indicados |
+| 💠 Pix gerado / ⚠️ falha ao gerar | valor, transação, referência, expiração |
+| ✅ Depósito confirmado / ❌ Pix expirado | valor, saldo antes → depois, transação, nº de depósitos do usuário |
+| 🛒 Nova compra / 🚨 falha na entrega | produto, preço, saldo antes → depois, pedido, estoque restante (avisa quando esgota) |
+| 💰 📥 📤 🗂 ⚙️ Ações do admin | saldo adicionado, estoque adicionado/removido, produto criado/editado/pausado/excluído, configurações |
+
+Senhas e logins **nunca** são enviados ao canal.
+
+**Como configurar:**
+1. Crie um canal (pode ser privado) e adicione o bot como **administrador** com permissão de **publicar mensagens**.
+2. No bot: `/admin` → **⚙️ Configurações** → **📢 Definir canal de logs**. **Encaminhe** qualquer post do canal para o bot ou envie o ID (`-100…`).
+3. O bot posta uma mensagem de teste. Se não conseguir, ele mostra o erro e não salva.
+
+Também dá pra definir por `LOG_CHANNEL_ID=-1001234567890` no `.env`, mas o valor do painel tem prioridade. Se o canal ficar indisponível, a loja continua funcionando normalmente; o erro só aparece no terminal.
 
 ## 8. Recarga via Pix
 
