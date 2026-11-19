@@ -20,24 +20,41 @@ def is_admin(user_id):
 
 
 def home(chat_id, user_id, message_id=None, new_message=False, note=None):
-    """Menu inicial: saudação, avisos, carteira e a imagem do menu logo abaixo do texto."""
+    """Menu inicial: a imagem do menu como foto, com saudação, avisos, carteira e botões na legenda.
+
+    Sem imagem configurada (ou se ela falhar), o menu é uma mensagem de texto comum.
+    """
     text = views.home_text(user_id)
     if note:
         text = f"{note}\n\n{text}"
     markup = keyboards.main_menu(is_admin(user_id))
-    image = views.home_image_url() or None
+    image = views.home_image_url()
+    current = message_id if message_id is not None else panels.active_menu_message_id(chat_id)
+    if image and len(text) <= views.CAPTION_LIMIT:
+        if not new_message and current is not None and panels.active_menu_is_photo(chat_id, current):
+            try:  # o painel já é uma foto: troca a foto e a legenda sem enviar outra mensagem
+                panels.edit_photo(chat_id, current, image, text, markup)
+                return
+            except Exception as exc:
+                if not telegram_api.message_unavailable(exc):
+                    print(f"[MENU] Não foi possível atualizar a foto do menu: {exc}")
+        try:
+            panels.send_photo_panel(chat_id, image, text, markup, replace_message_id=current)
+            return
+        except Exception as exc:
+            print(f"[MENU] Imagem do menu não pôde ser enviada ({image}): {exc}. Mostrando só o texto.")
     if new_message:
-        panels.send_new_panel(chat_id, text, markup, preview_url=image)
+        panels.send_new_panel(chat_id, text, markup)
         return
     if message_id is None:
-        panels.edit_active_panel(chat_id, text, markup, preview_url=image)
+        panels.edit_active_panel(chat_id, text, markup)
         return
     try:
-        panels.edit_message(chat_id, message_id, text, markup, preview_url=image)
+        panels.edit_message(chat_id, message_id, text, markup)
     except RuntimeError as exc:
         if not telegram_api.message_unavailable(exc):
             raise
-        panels.send_new_panel(chat_id, text, markup, preview_url=image)
+        panels.send_new_panel(chat_id, text, markup)
 
 
 def admin_only(user_id):

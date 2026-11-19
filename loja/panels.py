@@ -27,7 +27,9 @@ def send_photo_panel(chat_id, photo_url, caption, reply_markup=None, replace_mes
 
     Levanta o erro do Telegram se a imagem não puder ser usada (link quebrado, não é imagem...).
     """
-    result = telegram_api.send_photo_url(chat_id, photo_url, caption, reply_markup)
+    result = _with_cached_photo(
+        photo_url, lambda ref: telegram_api.send_photo_url(chat_id, ref, caption, reply_markup)
+    )
     if not isinstance(result, dict) or result.get("message_id") is None:
         raise RuntimeError("Telegram não retornou o ID da foto enviada.")
     new_message_id = result["message_id"]
@@ -38,6 +40,54 @@ def send_photo_panel(chat_id, photo_url, caption, reply_markup=None, replace_mes
         except Exception as exc:
             print("Não foi possível remover o painel anterior:", exc)
     return new_message_id
+
+
+# Link da imagem → file_id do Telegram. Depois do primeiro envio, o Telegram não precisa
+# baixar a imagem do link de novo: o menu e os produtos com foto abrem mais rápido.
+PHOTO_IDS = {}
+
+
+def _remember_photo(photo_url, result):
+    photos = result.get("photo") if isinstance(result, dict) else None
+    if isinstance(photos, list) and photos and photos[-1].get("file_id"):
+        PHOTO_IDS[photo_url] = photos[-1]["file_id"]
+
+
+def _with_cached_photo(photo_url, send):
+    """Envia usando o file_id guardado; se ele falhar, tenta pelo link e guarda o novo file_id."""
+    cached = PHOTO_IDS.get(photo_url)
+    if cached:
+        try:
+            result = send(cached)
+            return result
+        except RuntimeError as exc:
+            if telegram_api.is_not_modified(exc):
+                raise
+            PHOTO_IDS.pop(photo_url, None)
+    result = send(photo_url)
+    _remember_photo(photo_url, result)
+    return result
+
+
+def edit_photo(chat_id, message_id, photo_url, caption, reply_markup=None):
+    """Troca a foto e a legenda de um painel que já é foto (sem enviar mensagem nova)."""
+    def send(ref):
+        data = {
+            "chat_id": chat_id, "message_id": message_id,
+            "media": json.dumps({"type": "photo", "media": ref, "caption": caption, "parse_mode": "HTML"},
+                                ensure_ascii=False),
+        }
+        if reply_markup:
+            data["reply_markup"] = json.dumps(reply_markup, ensure_ascii=False)
+        return telegram_api.call("editMessageMedia", data, timeout=30)
+
+    try:
+        _with_cached_photo(photo_url, send)
+    except RuntimeError as exc:
+        if not telegram_api.is_not_modified(exc):
+            raise
+    remember_active_menu(chat_id, message_id, media="photo")
+    return message_id
 
 
 def edit_message(chat_id, message_id, text, reply_markup=None, parse_mode="HTML", keep_photo=False,

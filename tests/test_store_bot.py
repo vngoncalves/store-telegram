@@ -47,6 +47,7 @@ class FakeTelegram:
         self.fail_next = {}
         self.unknown_chats = set()
         self.bad_photos = set()
+        self.photo_sends = []
         self.bot_member = {"status": "administrator", "can_post_messages": True}
 
     def _new(self, chat_id, kind, content):
@@ -78,7 +79,18 @@ class FakeTelegram:
                     "Telegram HTTP 400", 400, "Bad Request: wrong type of the web page content")
             message = self._new(data["chat_id"], "photo", data["caption"])
             self.messages[(int(data["chat_id"]), message["message_id"])]["photo"] = data["photo"]
-            return message
+            self.photo_sends.append(data["photo"])
+            return {**message, "photo": [{"file_id": "small"}, {"file_id": "fid:" + data["photo"].replace("fid:", "")}]}
+        if method == "editMessageMedia":
+            key = (int(data["chat_id"]), int(data["message_id"]))
+            if key not in self.messages:
+                raise RuntimeError("Bad Request: message to edit not found")
+            media = json.loads(data["media"])
+            if media["media"] in self.bad_photos:
+                raise RuntimeError("Bad Request: wrong type of the web page content")
+            self.messages[key].update(kind="photo", content=media["caption"], photo=media["media"])
+            self.photo_sends.append(media["media"])
+            return {"message_id": key[1], "photo": [{"file_id": "fid:" + media["media"].replace("fid:", "")}]}
         if method == "sendMessage":
             return self._new(data["chat_id"], "text", data["text"])
         if method == "deleteMessage":
@@ -148,6 +160,7 @@ class BotTestCase(unittest.TestCase):
                 path.unlink()
         panels.ACTIVE_MENUS.clear()
         panels.ACTIVE_MEDIA.clear()
+        panels.PHOTO_IDS.clear()
         handlers.ACTIVE_PIX_DEPOSITS.clear()
         handlers.STATES.clear()
         self.tg = FakeTelegram()
@@ -1146,7 +1159,7 @@ class ProductImageTests(BotTestCase):
         self.click(USER, "product:1")
         screen = self.screen(USER)
         self.assertEqual(screen["kind"], "photo")
-        self.assertEqual(screen["photo"], self.IMAGE)
+        self.assertEqual(screen["photo"], "fid:" + self.IMAGE)  # reaproveita a foto da prévia do admin
         self.assertIn("Curso Teste", screen["content"])
         self.assertIn("Login 1 de 1", screen["content"])
         self.assertNotIn((USER, catalog_id), self.tg.messages)  # painel antigo foi trocado pela foto
@@ -1211,20 +1224,45 @@ class HomeMenuTests(BotTestCase):
         self.assertTrue(text.startswith("🌙 <b>Boa noite, T!</b> 👋"))
         self.assertIn("<b>🏦 Carteira:</b>\n<b> ├ ID:</b> <code>500</code>\n<b> ├💰 Saldo: R$ 0,00</b>", text)
 
-    def test_image_shown_below_text_and_buttons_kept(self):
+    def test_menu_is_photo_with_caption_and_buttons(self):
         storage.update_settings(home_image_url=self.IMAGE)
         self.send(USER, "/start")
-        data = [d for m, d in self.tg.calls if m == "sendMessage" and d["chat_id"] == USER][-1]
-        preview = json.loads(data["link_preview_options"])
-        self.assertEqual(preview, {"url": self.IMAGE, "prefer_large_media": True, "show_above_text": False})
+        screen = self.screen(USER)
+        self.assertEqual(screen["kind"], "photo")  # foto: sem a linha colorida da prévia de link
+        self.assertEqual(screen["photo"], self.IMAGE)
+        self.assertIn("Carteira", screen["content"])
+        method, data = [c for c in self.tg.calls if c[0] == "sendPhoto"][-1]
         buttons = [b["callback_data"] for row in json.loads(data["reply_markup"])["inline_keyboard"]
                    for b in row if "callback_data" in b]
         self.assertEqual(buttons[:3], ["catalog", "profile", "wallet:deposit"])
-        # voltar ao menu por um botão mantém a imagem; outras telas desligam a prévia
+
+        # outra tela: a foto dá lugar a um painel de texto; voltar ao menu traz a foto de novo
         self.click(USER, "profile")
-        self.assertEqual(json.loads(self.tg.calls[-1][1]["link_preview_options"]), {"is_disabled": True})
+        self.assertEqual(self.screen(USER)["kind"], "text")
         self.click(USER, "home")
-        self.assertEqual(json.loads(self.tg.calls[-1][1]["link_preview_options"])["url"], self.IMAGE)
+        self.assertEqual(self.screen(USER)["kind"], "photo")
+        # depois do primeiro envio, a foto vai pelo file_id guardado (sem baixar o link de novo)
+        self.assertEqual(self.tg.photo_sends[0], self.IMAGE)
+        self.assertEqual(self.tg.photo_sends[-1], "fid:" + self.IMAGE)
+
+    def test_menu_photo_edits_in_place_from_another_photo(self):
+        storage.update_settings(home_image_url=self.IMAGE)
+        self.create_product_with_license()
+        storage.update_product(1, image="https://i.imgur.com/produto.jpg")
+        self.send(USER, "/start")
+        self.click(USER, "product:1")
+        product_photo = panels.active_menu_message_id(USER)
+        self.click(USER, "home")
+        self.assertEqual(panels.active_menu_message_id(USER), product_photo)  # mesma mensagem, só trocou a foto
+        self.assertIn("editMessageMedia", self.tg.methods())
+        self.assertIn("Carteira", self.screen(USER)["content"])
+
+    def test_broken_menu_image_falls_back_to_text(self):
+        storage.update_settings(home_image_url="https://quebrado.com/x.jpg")
+        self.tg.bad_photos.add("https://quebrado.com/x.jpg")
+        self.send(USER, "/start")
+        self.assertEqual(self.screen(USER)["kind"], "text")
+        self.assertIn("Carteira", self.screen(USER)["content"])
 
     def test_admin_sets_menu_image_and_notices(self):
         self.send(ADMIN, "/admin")
