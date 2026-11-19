@@ -61,6 +61,10 @@ DATA_FILE = os.getenv("DATA_FILE", "data/store.json").strip() or "data/store.jso
 PRODUCTS_FILE = os.getenv("PRODUCTS_FILE", "produtos.json").strip() or "produtos.json"
 
 
+# Imagem do menu inicial (link direto). Também pode ser definida no painel admin → ⚙️ Configurações.
+HOME_IMAGE_URL = os.getenv("HOME_IMAGE_URL", "").strip()
+
+
 # Canal de logs (ex.: -1001234567890). Também pode ser definido no painel admin → ⚙️ Configurações.
 LOG_CHANNEL_ID = os.getenv("LOG_CHANNEL_ID", "").strip()
 

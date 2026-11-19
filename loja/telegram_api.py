@@ -154,8 +154,15 @@ def get_updates(offset=None, timeout=30):
     return call("getUpdates", args, timeout=timeout + 10)
 
 
-def send_message(chat_id, text, reply_markup=None, parse_mode="HTML"):
-    data = {"chat_id": chat_id, "text": text}
+def link_preview(image_url=None):
+    """Prévia de link: com image_url, mostra a imagem grande ABAIXO do texto; sem, desliga a prévia."""
+    if image_url:
+        return json.dumps({"url": image_url, "prefer_large_media": True, "show_above_text": False})
+    return json.dumps({"is_disabled": True})
+
+
+def send_message(chat_id, text, reply_markup=None, parse_mode="HTML", preview_url=None):
+    data = {"chat_id": chat_id, "text": text, "link_preview_options": link_preview(preview_url)}
     if parse_mode:
         data["parse_mode"] = parse_mode
     if reply_markup:

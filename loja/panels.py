@@ -4,9 +4,12 @@ import json
 from . import storage, telegram_api
 
 
-def send_new_panel(chat_id, text, reply_markup=None, replace_message_id=None):
-    """Envia um novo painel de texto, torna-o o painel ativo e remove o anterior."""
-    result = telegram_api.send_message(chat_id, text, reply_markup)
+def send_new_panel(chat_id, text, reply_markup=None, replace_message_id=None, preview_url=None):
+    """Envia um novo painel de texto, torna-o o painel ativo e remove o anterior.
+
+    preview_url: imagem mostrada grande abaixo do texto (prévia de link), como no menu inicial.
+    """
+    result = telegram_api.send_message(chat_id, text, reply_markup, preview_url=preview_url)
     if not isinstance(result, dict) or result.get("message_id") is None:
         raise RuntimeError("Telegram não retornou o ID do novo painel.")
     new_message_id = result["message_id"]
@@ -37,13 +40,16 @@ def send_photo_panel(chat_id, photo_url, caption, reply_markup=None, replace_mes
     return new_message_id
 
 
-def edit_message(chat_id, message_id, text, reply_markup=None, parse_mode="HTML", keep_photo=False):
+def edit_message(chat_id, message_id, text, reply_markup=None, parse_mode="HTML", keep_photo=False,
+                 preview_url=None):
     """Edita o painel. Um painel com foto (QR Pix) é substituído por texto, salvo keep_photo."""
     is_photo = active_menu_is_photo(chat_id, message_id)
     if is_photo and not keep_photo:
-        return send_new_panel(chat_id, text, reply_markup, replace_message_id=message_id)
+        return send_new_panel(chat_id, text, reply_markup, replace_message_id=message_id, preview_url=preview_url)
     data = {"chat_id": chat_id, "message_id": message_id}
     data["caption" if is_photo else "text"] = text
+    if not is_photo:
+        data["link_preview_options"] = telegram_api.link_preview(preview_url)
     if parse_mode:
         data["parse_mode"] = parse_mode
     if reply_markup:
@@ -57,16 +63,16 @@ def edit_message(chat_id, message_id, text, reply_markup=None, parse_mode="HTML"
     return message_id
 
 
-def edit_active_panel(chat_id, text, reply_markup, keep_photo=False):
+def edit_active_panel(chat_id, text, reply_markup, keep_photo=False, preview_url=None):
     """Atualiza o painel ativo do chat; se ele não existir mais, envia um novo."""
     message_id = active_menu_message_id(chat_id)
     if message_id is None:
-        return send_new_panel(chat_id, text, reply_markup)
+        return send_new_panel(chat_id, text, reply_markup, preview_url=preview_url)
     try:
-        return edit_message(chat_id, message_id, text, reply_markup, keep_photo=keep_photo)
+        return edit_message(chat_id, message_id, text, reply_markup, keep_photo=keep_photo, preview_url=preview_url)
     except RuntimeError as exc:
         if telegram_api.message_unavailable(exc):
-            return send_new_panel(chat_id, text, reply_markup)
+            return send_new_panel(chat_id, text, reply_markup, preview_url=preview_url)
         raise
 
 

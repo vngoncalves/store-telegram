@@ -49,6 +49,13 @@ DEFAULT_SETTINGS = {
     "referral_bonus": "5.00",           # pago a quem indicou, uma vez por indicado (0 = desativado)
     "referral_requires_deposit": False,  # False: paga assim que o indicado entra; True: só após o 1º depósito
     "log_channel_id": "",               # canal de logs (vazio = usa LOG_CHANNEL_ID do .env)
+    "home_image_url": "",               # imagem do menu inicial (vazio = usa HOME_IMAGE_URL do .env)
+    "home_notices": (                   # avisos do menu inicial, um por linha
+        "🌐 Acesse sempre via navegador 4G!\n"
+        "📧 Apenas Logins com acesso mail!\n"
+        "🔑 Altere a senha após o login!\n"
+        "⏱️ Prazo de verificação: 10 minutos!"
+    ),
 }
 
 
@@ -202,6 +209,8 @@ def get_settings():
             "referral_bonus": Decimal(settings["referral_bonus"]),
             "referral_requires_deposit": bool(settings["referral_requires_deposit"]),
             "log_channel_id": str(settings.get("log_channel_id") or ""),
+            "home_image_url": str(settings.get("home_image_url") or ""),
+            "home_notices": str(settings.get("home_notices") or ""),
         }
 
 
@@ -217,8 +226,10 @@ def update_settings(**changes):
                 if not value.is_finite() or value < 0:
                     raise ValueError("O valor não pode ser negativo.")
                 value = str(value.quantize(Decimal("0.01")))
-            elif key == "log_channel_id":
+            elif key in {"log_channel_id", "home_image_url"}:
                 value = str(value or "").strip()
+            elif key == "home_notices":
+                value = "\n".join(line.strip() for line in str(value or "").splitlines() if line.strip())
             else:
                 value = bool(value)
             data["settings"][key] = value

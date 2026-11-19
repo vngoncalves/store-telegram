@@ -20,22 +20,24 @@ def is_admin(user_id):
 
 
 def home(chat_id, user_id, message_id=None, new_message=False, note=None):
+    """Menu inicial: saudação, avisos, carteira e a imagem do menu logo abaixo do texto."""
     text = views.home_text(user_id)
     if note:
         text = f"{note}\n\n{text}"
     markup = keyboards.main_menu(is_admin(user_id))
+    image = views.home_image_url() or None
     if new_message:
-        panels.send_new_panel(chat_id, text, markup)
+        panels.send_new_panel(chat_id, text, markup, preview_url=image)
         return
     if message_id is None:
-        panels.edit_active_panel(chat_id, text, markup)
+        panels.edit_active_panel(chat_id, text, markup, preview_url=image)
         return
     try:
-        panels.edit_message(chat_id, message_id, text, markup)
+        panels.edit_message(chat_id, message_id, text, markup, preview_url=image)
     except RuntimeError as exc:
         if not telegram_api.message_unavailable(exc):
             raise
-        panels.send_new_panel(chat_id, text, markup)
+        panels.send_new_panel(chat_id, text, markup, preview_url=image)
 
 
 def admin_only(user_id):
@@ -154,7 +156,7 @@ def handle_inline_query(query):
 ADMIN_STEPS = {
     "product_name", "product_description", "product_price", "stock_add", "admin_pick",
     "edit_price", "edit_name", "edit_desc", "balance_user", "balance_amount", "resend_order",
-    "cfg_welcome", "cfg_ref", "cfg_logs", "edit_image",
+    "cfg_welcome", "cfg_ref", "cfg_logs", "edit_image", "cfg_home_img", "cfg_home_text",
 }
 
 
@@ -197,6 +199,31 @@ def handle_admin_settings(chat_id, message_id, user_id, data):
         updated = storage.update_settings(referral_requires_deposit=not settings["referral_requires_deposit"])
         note = ("📌 Indicação paga no 1º depósito do indicado." if updated["referral_requires_deposit"]
                 else "📌 Indicação paga assim que o indicado entra pelo link.")
+    elif action == "home_img":
+        STATES[user_id] = {"state": "cfg_home_img", "data": {}}
+        current = settings["home_image_url"] or config.HOME_IMAGE_URL
+        panels.edit_message(
+            chat_id, message_id,
+            "🖼 <b>Imagem do menu inicial</b>\n\n"
+            + (f"Atual:\n<code>{escape(current)}</code>\n\n" if current else "Nenhuma imagem definida.\n\n")
+            + "Envie o <b>link direto</b> da imagem (JPG, PNG ou WEBP), ex.:\n"
+            "<code>https://i.imgur.com/abc123.jpg</code>\n\n"
+            "Ela aparece grande, logo abaixo do texto do menu.\nEnvie <code>0</code> para remover.",
+            keyboards.admin_settings_back()
+        )
+        return
+    elif action == "home_text":
+        STATES[user_id] = {"state": "cfg_home_text", "data": {}}
+        current = settings["home_notices"] or "(nenhum)"
+        panels.edit_message(
+            chat_id, message_id,
+            "📝 <b>Avisos do menu inicial</b>\n\nAtuais:\n"
+            f"<code>{escape(current)}</code>\n\n"
+            "Envie os novos avisos, <b>um por linha</b> (pode usar emojis).\n"
+            "Envie <code>0</code> para não mostrar avisos.",
+            keyboards.admin_settings_back()
+        )
+        return
     elif action == "logs":
         STATES[user_id] = {"state": "cfg_logs", "data": {}}
         panels.edit_message(
@@ -248,6 +275,36 @@ def _channel_problems_text(failures):
         "<i>Os detalhes também aparecem no terminal, nas linhas [LOGS].</i>",
     ]
     return "\n".join(lines)
+
+
+def set_home_image(chat_id, user_id, text):
+    """Salva a imagem do menu só se o Telegram conseguir abrir o link (teste rápido, apagado em seguida)."""
+    url = validators.parse_image_url(text)
+    if not url:
+        storage.update_settings(home_image_url="")
+        logs.settings_changed(user_id, "Imagem do menu inicial removida")
+        admin_settings_panel(chat_id, user_id, "🖼 Imagem do menu removida.")
+        return
+    try:
+        test = telegram_api.send_photo_url(chat_id, url, "🧪 Testando a imagem do menu…")
+        try:
+            telegram_api.delete_message(chat_id, test["message_id"])
+        except Exception:
+            pass
+    except Exception as exc:
+        print(f"[MENU] Link de imagem do menu recusado pelo Telegram ({url}): {exc}")
+        panels.edit_active_panel(
+            chat_id,
+            "⚠️ <b>O Telegram não conseguiu usar essa imagem.</b>\n\n"
+            "Use um <b>link direto</b> para o arquivo (termina em .jpg, .png ou .webp e abre só a foto). "
+            "Links de páginas, do Google Drive ou do Instagram não funcionam.\n\n"
+            f"<i>Erro do Telegram:</i> <code>{escape(str(exc))[:200]}</code>\n\nEnvie outro link ou toque em Cancelar.",
+            keyboards.admin_settings_back()
+        )
+        return
+    storage.update_settings(home_image_url=url)
+    logs.settings_changed(user_id, "Imagem do menu inicial definida")
+    admin_settings_panel(chat_id, user_id, "🖼 Imagem do menu salva. Abra o menu principal para ver.")
 
 
 def set_log_channel_from_message(chat_id, user_id, message, text):
@@ -921,6 +978,13 @@ def handle_message(message):
             admin_settings_panel(chat_id, user_id, f"✅ Bônus de {label} {status}.")
         elif step == "cfg_logs":
             set_log_channel_from_message(chat_id, user_id, message, text)
+        elif step == "cfg_home_img":
+            set_home_image(chat_id, user_id, text)
+        elif step == "cfg_home_text":
+            notices = "" if text.strip() == "0" else text[:1500]
+            storage.update_settings(home_notices=notices)
+            logs.settings_changed(user_id, "Avisos do menu inicial alterados")
+            admin_settings_panel(chat_id, user_id, "📝 Avisos do menu atualizados. Abra o menu principal para ver.")
         elif step == "admin_pick":
             admin_pick_from_text(chat_id, user_id, state["data"]["mode"], text)
         elif step == "stock_add":

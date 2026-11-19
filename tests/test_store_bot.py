@@ -232,8 +232,11 @@ class MenuTests(BotTestCase):
         self.assertIsNotNone(storage.get_user(USER))
         content = self.screen(USER)["content"]
         self.assertIn("Saldo: R$ 0,00", content)
-        self.assertIn("@suporte_teste", content)
         self.assertIn("@canal_teste", content)
+        self.assertIn("Acesse sempre via navegador 4G!", content)
+        self.assertIn(f"<code>{USER}</code>", content)
+        rows = json.loads(self.tg.calls[-1][1]["reply_markup"])["inline_keyboard"]
+        self.assertIn("t.me/suporte_teste", json.dumps(rows))  # suporte continua como botão
 
     def test_admin_command_without_panel_sends_new_message(self):
         self.send(ADMIN, "/admin")
@@ -1191,6 +1194,66 @@ class ProductImageTests(BotTestCase):
         catalog["produtos"][0]["imagem"] = "  " + self.IMAGE + "  "
         storage._PRODUCTS_PATH.write_text(json.dumps(catalog), encoding="utf-8")
         self.assertEqual(storage.get_product(1)["image"], self.IMAGE)
+
+
+class HomeMenuTests(BotTestCase):
+    IMAGE = "https://i.imgur.com/menu50off.jpg"
+
+    def test_greeting_by_time_of_day(self):
+        from datetime import datetime as dt
+        from loja import views
+        self.assertEqual(views.greeting(dt(2026, 1, 1, 8)), ("☀️", "Bom dia"))
+        self.assertEqual(views.greeting(dt(2026, 1, 1, 14)), ("🌤", "Boa tarde"))
+        self.assertEqual(views.greeting(dt(2026, 1, 1, 20)), ("🌙", "Boa noite"))
+        self.assertEqual(views.greeting(dt(2026, 1, 1, 3)), ("🌙", "Boa noite"))
+        self.send(USER, "/start")
+        text = views.home_text(USER, dt(2026, 1, 1, 20))
+        self.assertTrue(text.startswith("🌙 <b>Boa noite, T!</b> 👋"))
+        self.assertIn("<b>🏦 Carteira:</b>\n<b> ├ ID:</b> <code>500</code>\n<b> ├💰 Saldo: R$ 0,00</b>", text)
+
+    def test_image_shown_below_text_and_buttons_kept(self):
+        storage.update_settings(home_image_url=self.IMAGE)
+        self.send(USER, "/start")
+        data = [d for m, d in self.tg.calls if m == "sendMessage" and d["chat_id"] == USER][-1]
+        preview = json.loads(data["link_preview_options"])
+        self.assertEqual(preview, {"url": self.IMAGE, "prefer_large_media": True, "show_above_text": False})
+        buttons = [b["callback_data"] for row in json.loads(data["reply_markup"])["inline_keyboard"]
+                   for b in row if "callback_data" in b]
+        self.assertEqual(buttons[:3], ["catalog", "profile", "wallet:deposit"])
+        # voltar ao menu por um botão mantém a imagem; outras telas desligam a prévia
+        self.click(USER, "profile")
+        self.assertEqual(json.loads(self.tg.calls[-1][1]["link_preview_options"]), {"is_disabled": True})
+        self.click(USER, "home")
+        self.assertEqual(json.loads(self.tg.calls[-1][1]["link_preview_options"])["url"], self.IMAGE)
+
+    def test_admin_sets_menu_image_and_notices(self):
+        self.send(ADMIN, "/admin")
+        self.click(ADMIN, "adm:cfg:home_img")
+        self.tg.bad_photos.add("https://site.com/pagina")
+        self.send(ADMIN, "https://site.com/pagina")
+        self.assertIn("não conseguiu usar essa imagem", self.screen(ADMIN)["content"])
+        self.assertEqual(storage.get_settings()["home_image_url"], "")
+        self.send(ADMIN, self.IMAGE)
+        self.assertEqual(storage.get_settings()["home_image_url"], self.IMAGE)
+        self.assertIn("Imagem do menu salva", self.screen(ADMIN)["content"])
+        self.assertFalse(any(m["kind"] == "photo" for m in self.tg.messages.values()))  # teste foi apagado
+
+        self.click(ADMIN, "adm:cfg:home_text")
+        self.send(ADMIN, "🚀 Entrega imediata!\n\n💬 Suporte 24h")
+        self.assertEqual(storage.get_settings()["home_notices"], "🚀 Entrega imediata!\n💬 Suporte 24h")
+        self.send(USER, "/start")
+        content = self.screen(USER)["content"]
+        self.assertIn("Entrega imediata!", content)
+        self.assertNotIn("navegador 4G", content)
+
+        self.click(ADMIN, "adm:cfg:home_img")
+        self.send(ADMIN, "0")
+        self.assertEqual(storage.get_settings()["home_image_url"], "")
+
+    def test_no_image_disables_preview(self):
+        self.send(USER, "/start")
+        data = [d for m, d in self.tg.calls if m == "sendMessage" and d["chat_id"] == USER][-1]
+        self.assertEqual(json.loads(data["link_preview_options"]), {"is_disabled": True})
 
 
 class HardeningTests(BotTestCase):

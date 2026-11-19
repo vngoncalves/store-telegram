@@ -159,6 +159,12 @@ Os comandos `/admin` e `/saldo` são restritos aos administradores. No painel, e
 - **➖ Remover 1** / **🧹 Esvaziar estoque**: retira os acessos mais recentes.
 - **💲 Preço**, **✏️ Nome**, **📝 Descrição**, **⏸ Pausar/▶️ Ativar vendas** e **🗑 Excluir produto**. As compras já feitas continuam no histórico do cliente.
 
+### Menu inicial
+
+O menu inicial mostra uma saudação pela hora ("☀️ Bom dia", "🌤 Boa tarde" ou "🌙 Boa noite", com o nome do cliente), os avisos da loja, a carteira (ID e saldo) e uma **imagem grande abaixo do texto**. Em **⚙️ Configurações**:
+- **🖼 Imagem do menu**: envie o link direto da imagem. O bot testa o link antes de salvar. Envie `0` para remover. Também dá pra usar `HOME_IMAGE_URL` no `.env`.
+- **📝 Avisos do menu**: envie os avisos, um por linha. Envie `0` para não mostrar nenhum.
+
 ### Bônus: boas-vindas e indicação
 
 Os dois bônus são configurados no painel em **⚙️ Configurações (bônus)**. Valem na hora e ficam salvos em `data/store.json` (seção `settings`).

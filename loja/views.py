@@ -186,25 +186,38 @@ def profile_view(user_id):
     return "\n".join(lines), keyboards.profile_menu(link)
 
 
-def home_text(user_id):
+def greeting(now=None):
+    """Saudação pela hora local: bom dia (5h–11h), boa tarde (12h–17h), boa noite (18h–4h)."""
+    hour = (now or datetime.now()).hour
+    if 5 <= hour < 12:
+        return "☀️", "Bom dia"
+    if 12 <= hour < 18:
+        return "🌤", "Boa tarde"
+    return "🌙", "Boa noite"
+
+
+def home_text(user_id, now=None):
     user = storage.get_user(user_id) or {"balance": "0.00"}
-    lines = [
-        "📦 <b>Seja bem-vindo(a) a maior loja de logins do telegram!</b>\n",
-        "🛍 | <b>Qualidade:</b> Logins",
-        "✅ | <b>Garantia:</b> Acesso garantido.\n",
-    ]
+    settings = storage.get_settings()
+    icon, salutation = greeting(now)
+    name = escape(user.get("first_name") or "")
+    lines = [f"{icon} <b>{salutation}{', ' + name if name else ''}!</b> 👋", ""]
+    notices = [line for line in settings["home_notices"].split("\n") if line.strip()]
+    if notices:
+        lines += [f"<b>{escape(line.strip())}</b>" for line in notices] + [""]
     if config.STORE_CHANNEL:
-        lines.append(f"🔔 | <b>Canal: @{escape(config.STORE_CHANNEL)}</b>")
-    if config.SUPPORT_USERNAME:
-        lines.append(f"👤 | <b>Suporte: @{escape(config.SUPPORT_USERNAME)}</b>")
-    if config.STORE_CHANNEL or config.SUPPORT_USERNAME:
-        lines[-1] += "\n"
-    lines.extend([
+        lines += [f"🔔 <b>Canal: @{escape(config.STORE_CHANNEL)}</b>", ""]
+    lines += [
         "<b>🏦 Carteira:</b>",
         f"<b> ├ ID:</b> <code>{user_id}</code>",
         f"<b> ├💰 Saldo: {validators.money(user['balance'])}</b>",
-    ])
+    ]
     return "\n".join(lines)
+
+
+def home_image_url():
+    """Imagem do menu inicial (painel admin → ⚙️ Configurações, ou HOME_IMAGE_URL no .env)."""
+    return storage.get_settings()["home_image_url"] or config.HOME_IMAGE_URL
 
 
 def delivery_view(product_name, encrypted_payload, price=None, balance=None):
@@ -334,6 +347,11 @@ def admin_settings_text(settings, note=None):
         log_status = f"🟢 Enviando para <code>{escape(str(channel))}</code>{source}"
     else:
         log_status = "⏸ Não configurado"
+    notices = [line for line in settings.get("home_notices", "").split("\n") if line.strip()]
+    image = settings.get("home_image_url") or config.HOME_IMAGE_URL
+    home_image_status = (
+        f"✅ <code>{escape(image[:60])}{'…' if len(image) > 60 else ''}</code>" if image else "— nenhuma"
+    )
     text = (
         "⚙️ <b>Configurações</b>\n\n"
         "🎁 <b>Bônus de boas-vindas</b>\n"
@@ -342,6 +360,9 @@ def admin_settings_text(settings, note=None):
         "🤝 <b>Bônus de indicação</b>\n"
         f" ├ Valor: {referral_status}\n"
         f" └ Pago a quem indicou, uma vez por indicado, <b>{rule}</b>.\n\n"
+        "🏠 <b>Menu inicial</b>\n"
+        f" ├ Imagem: {home_image_status}\n"
+        f" └ Avisos: <b>{len(notices)}</b> linha(s)\n\n"
         "📢 <b>Canal de logs</b>\n"
         f" └ {log_status}\n\n"
         "<i>As mudanças valem na hora, para os próximos usuários.</i>"

@@ -150,6 +150,8 @@ def admin_settings(settings):
         [{"text": "🎁 Alterar boas-vindas", "callback_data": "adm:cfg:welcome"}, welcome_toggle],
         [{"text": "🤝 Alterar indicação", "callback_data": "adm:cfg:ref"}, referral_toggle],
         [{"text": f"{rule} (trocar)", "callback_data": "adm:cfg:ref_mode"}],
+        [{"text": "🖼 Imagem do menu", "callback_data": "adm:cfg:home_img"},
+         {"text": "📝 Avisos do menu", "callback_data": "adm:cfg:home_text"}],
         [{"text": "📢 Definir canal de logs", "callback_data": "adm:cfg:logs"}],
         [{"text": "🧪 Enviar teste", "callback_data": "adm:cfg:logs_test"},
          {"text": "⏸ Desligar logs", "callback_data": "adm:cfg:logs_off"}],
