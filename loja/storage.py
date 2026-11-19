@@ -50,10 +50,13 @@ DEFAULT_SETTINGS = {
     "referral_requires_deposit": False,  # False: paga assim que o indicado entra; True: só após o 1º depósito
     "log_channel_id": "",               # canal de logs (vazio = usa LOG_CHANNEL_ID do .env)
     "home_image_url": "",               # imagem do menu inicial (vazio = usa HOME_IMAGE_URL do .env)
+    "catalog_image_url": "",            # imagem da vitrine "🛒 Logins" (Comprar Unitário)
+    "profile_image_url": "",            # imagem da tela "👤 Meu perfil"
+    "deposit_image_url": "",            # imagem da tela "💰 Adicionar saldo"
     "home_notices": (                   # avisos do menu inicial, um por linha
         "🌐 Acesse sempre via navegador 4G!\n"
-        "📧 Apenas Logins com acesso mail!\n"
-        "🔑 Altere a senha após o login!\n"
+        "📧 Apenas Logins antigos e com pedidos concluídos.\n"
+        "🔑 Altere a senha após o login.\n"
         "⏱️ Prazo de verificação: 10 minutos!"
     ),
 }
@@ -210,6 +213,9 @@ def get_settings():
             "referral_requires_deposit": bool(settings["referral_requires_deposit"]),
             "log_channel_id": str(settings.get("log_channel_id") or ""),
             "home_image_url": str(settings.get("home_image_url") or ""),
+            "catalog_image_url": str(settings.get("catalog_image_url") or ""),
+            "profile_image_url": str(settings.get("profile_image_url") or ""),
+            "deposit_image_url": str(settings.get("deposit_image_url") or ""),
             "home_notices": str(settings.get("home_notices") or ""),
         }
 
@@ -226,7 +232,7 @@ def update_settings(**changes):
                 if not value.is_finite() or value < 0:
                     raise ValueError("O valor não pode ser negativo.")
                 value = str(value.quantize(Decimal("0.01")))
-            elif key in {"log_channel_id", "home_image_url"}:
+            elif key == "log_channel_id" or key.endswith("_image_url"):
                 value = str(value or "").strip()
             elif key == "home_notices":
                 value = "\n".join(line.strip() for line in str(value or "").splitlines() if line.strip())

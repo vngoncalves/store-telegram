@@ -19,42 +19,54 @@ def is_admin(user_id):
     return user_id in config.ADMIN_IDS
 
 
-def home(chat_id, user_id, message_id=None, new_message=False, note=None):
-    """Menu inicial: a imagem do menu como foto, com saudação, avisos, carteira e botões na legenda.
+def show_screen(chat_id, message_id, text, markup, image=None, new_message=False, fresh=False):
+    """Mostra uma tela no painel do chat, com a imagem dela (foto + texto/botões na legenda) se houver.
 
-    Sem imagem configurada (ou se ela falhar), o menu é uma mensagem de texto comum.
+    - mesma foto já na tela: troca só a legenda (rápido);
+    - outra foto na tela: troca a foto no lugar (editMessageMedia);
+    - sem imagem, imagem com erro ou texto longo demais para legenda: painel de texto.
+    new_message: envia um painel novo sem apagar o anterior (/start).
+    fresh: envia um painel novo embaixo e apaga o anterior (resposta a uma mensagem do usuário).
     """
-    text = views.home_text(user_id)
-    if note:
-        text = f"{note}\n\n{text}"
-    markup = keyboards.main_menu(is_admin(user_id))
-    image = views.home_image_url()
     current = message_id if message_id is not None else panels.active_menu_message_id(chat_id)
     if image and len(text) <= views.CAPTION_LIMIT:
-        if not new_message and current is not None and panels.active_menu_is_photo(chat_id, current):
-            try:  # o painel já é uma foto: troca a foto e a legenda sem enviar outra mensagem
-                panels.edit_photo(chat_id, current, image, text, markup)
+        if not (new_message or fresh) and current is not None and panels.active_menu_is_photo(chat_id, current):
+            try:
+                if panels.ACTIVE_PHOTO.get(chat_id) == image:
+                    panels.edit_message(chat_id, current, text, markup, keep_photo=True)
+                else:
+                    panels.edit_photo(chat_id, current, image, text, markup)
                 return
             except Exception as exc:
                 if not telegram_api.message_unavailable(exc):
-                    print(f"[MENU] Não foi possível atualizar a foto do menu: {exc}")
+                    print(f"[TELA] Não foi possível atualizar a foto da tela: {exc}")
         try:
-            panels.send_photo_panel(chat_id, image, text, markup, replace_message_id=current)
+            panels.send_photo_panel(chat_id, image, text, markup, replace_message_id=None if new_message else current)
             return
         except Exception as exc:
-            print(f"[MENU] Imagem do menu não pôde ser enviada ({image}): {exc}. Mostrando só o texto.")
+            print(f"[TELA] Imagem não pôde ser enviada ({image}): {exc}. Mostrando só o texto.")
     if new_message:
         panels.send_new_panel(chat_id, text, markup)
-        return
-    if message_id is None:
+    elif fresh:
+        show_as_new_panel(chat_id, text, markup)
+    elif message_id is None:
         panels.edit_active_panel(chat_id, text, markup)
-        return
-    try:
-        panels.edit_message(chat_id, message_id, text, markup)
-    except RuntimeError as exc:
-        if not telegram_api.message_unavailable(exc):
-            raise
-        panels.send_new_panel(chat_id, text, markup)
+    else:
+        try:
+            panels.edit_message(chat_id, message_id, text, markup)
+        except RuntimeError as exc:
+            if not telegram_api.message_unavailable(exc):
+                raise
+            panels.send_new_panel(chat_id, text, markup)
+
+
+def home(chat_id, user_id, message_id=None, new_message=False, note=None):
+    """Menu inicial: boas-vindas, avisos e carteira, com a imagem do menu (se configurada)."""
+    text = views.home_text(user_id)
+    if note:
+        text = f"{note}\n\n{text}"
+    show_screen(chat_id, message_id, text, keyboards.main_menu(is_admin(user_id)),
+                views.screen_image_url("home"), new_message=new_message)
 
 
 def admin_only(user_id):
@@ -96,24 +108,8 @@ def show_product(chat_id, product_id, message_id=None, index=0, note=None):
         text = views.product_login_text(product, accesses, index, caption=caption)
         return f"{note}\n\n{text}" if note else text
 
-    if product["image"]:
-        if message_id is not None and panels.active_menu_is_photo(chat_id, message_id):
-            try:  # já está mostrando a foto: troca só a legenda (navegação entre logins)
-                panels.edit_message(chat_id, message_id, text_for(True), markup, keep_photo=True)
-                return
-            except Exception as exc:
-                print(f"[PRODUTO] Não foi possível atualizar a legenda do produto #{product_id}: {exc}")
-        replace_id = message_id if message_id is not None else panels.active_menu_message_id(chat_id)
-        try:
-            panels.send_photo_panel(chat_id, product["image"], text_for(True), markup, replace_id)
-            return
-        except Exception as exc:
-            print(f"[PRODUTO] Imagem do produto #{product_id} não pôde ser enviada "
-                  f"({product['image']}): {exc}. Mostrando só o texto.")
-    if message_id is None:
-        show_as_new_panel(chat_id, text_for(False), markup)
-    else:
-        panels.edit_message(chat_id, message_id, text_for(False), markup)
+    show_screen(chat_id, message_id, text_for(bool(product["image"])), markup, product["image"] or None,
+                fresh=message_id is None)
 
 
 def show_as_new_panel(chat_id, text, markup):
@@ -173,7 +169,7 @@ def handle_inline_query(query):
 ADMIN_STEPS = {
     "product_name", "product_description", "product_price", "stock_add", "admin_pick",
     "edit_price", "edit_name", "edit_desc", "balance_user", "balance_amount", "resend_order",
-    "cfg_welcome", "cfg_ref", "cfg_logs", "edit_image", "cfg_home_img", "cfg_home_text",
+    "cfg_welcome", "cfg_ref", "cfg_logs", "edit_image", "cfg_image", "cfg_home_text",
 }
 
 
@@ -216,17 +212,23 @@ def handle_admin_settings(chat_id, message_id, user_id, data):
         updated = storage.update_settings(referral_requires_deposit=not settings["referral_requires_deposit"])
         note = ("📌 Indicação paga no 1º depósito do indicado." if updated["referral_requires_deposit"]
                 else "📌 Indicação paga assim que o indicado entra pelo link.")
-    elif action == "home_img":
-        STATES[user_id] = {"state": "cfg_home_img", "data": {}}
-        current = settings["home_image_url"] or config.HOME_IMAGE_URL
+    elif action == "images":
+        screen_images_panel(chat_id, user_id, message_id=message_id)
+        return
+    elif action.startswith("img:") and action[4:] in views.SCREEN_IMAGES:
+        screen = action[4:]
+        _, label = views.SCREEN_IMAGES[screen]
+        STATES[user_id] = {"state": "cfg_image", "data": {"screen": screen}}
+        current = views.screen_image_url(screen)
         panels.edit_message(
             chat_id, message_id,
-            "🖼 <b>Imagem do menu inicial</b>\n\n"
+            f"🖼 <b>Imagem da tela {label}</b>\n\n"
             + (f"Atual:\n<code>{escape(current)}</code>\n\n" if current else "Nenhuma imagem definida.\n\n")
             + "Envie o <b>link direto</b> da imagem (JPG, PNG ou WEBP), ex.:\n"
             "<code>https://i.imgur.com/abc123.jpg</code>\n\n"
-            "Ela aparece grande, logo abaixo do texto do menu.\nEnvie <code>0</code> para remover.",
-            keyboards.admin_settings_back()
+            "Ela vai como foto, com o texto e os botões da tela logo abaixo.\n"
+            "Envie <code>0</code> para remover.",
+            keyboards.admin_images_back()
         )
         return
     elif action == "home_text":
@@ -294,34 +296,42 @@ def _channel_problems_text(failures):
     return "\n".join(lines)
 
 
-def set_home_image(chat_id, user_id, text):
-    """Salva a imagem do menu só se o Telegram conseguir abrir o link (teste rápido, apagado em seguida)."""
+def screen_images_panel(chat_id, user_id, note=None, message_id=None):
+    STATES.pop(user_id, None)
+    screens = [(key, label) for key, (_, label) in views.SCREEN_IMAGES.items()]
+    _show(chat_id, message_id, views.screen_images_text(note), keyboards.screen_images_menu(screens))
+
+
+def set_screen_image(chat_id, user_id, screen, text):
+    """Salva a imagem da tela só se o Telegram conseguir abrir o link (teste rápido, apagado em seguida)."""
+    setting, label = views.SCREEN_IMAGES[screen]
     url = validators.parse_image_url(text)
     if not url:
-        storage.update_settings(home_image_url="")
-        logs.settings_changed(user_id, "Imagem do menu inicial removida")
-        admin_settings_panel(chat_id, user_id, "🖼 Imagem do menu removida.")
+        storage.update_settings(**{setting: ""})
+        logs.settings_changed(user_id, f"Imagem da tela {label} removida")
+        screen_images_panel(chat_id, user_id, f"🖼 Imagem da tela {label} removida.")
         return
     try:
-        test = telegram_api.send_photo_url(chat_id, url, "🧪 Testando a imagem do menu…")
+        test = telegram_api.send_photo_url(chat_id, url, f"🧪 Testando a imagem da tela {label}…")
+        panels._remember_photo(url, test)  # já guarda o file_id: a tela abre rápido na primeira vez
         try:
             telegram_api.delete_message(chat_id, test["message_id"])
         except Exception:
             pass
     except Exception as exc:
-        print(f"[MENU] Link de imagem do menu recusado pelo Telegram ({url}): {exc}")
+        print(f"[TELA] Link de imagem recusado pelo Telegram para {label} ({url}): {exc}")
         panels.edit_active_panel(
             chat_id,
             "⚠️ <b>O Telegram não conseguiu usar essa imagem.</b>\n\n"
             "Use um <b>link direto</b> para o arquivo (termina em .jpg, .png ou .webp e abre só a foto). "
             "Links de páginas, do Google Drive ou do Instagram não funcionam.\n\n"
             f"<i>Erro do Telegram:</i> <code>{escape(str(exc))[:200]}</code>\n\nEnvie outro link ou toque em Cancelar.",
-            keyboards.admin_settings_back()
+            keyboards.admin_images_back()
         )
         return
-    storage.update_settings(home_image_url=url)
-    logs.settings_changed(user_id, "Imagem do menu inicial definida")
-    admin_settings_panel(chat_id, user_id, "🖼 Imagem do menu salva. Abra o menu principal para ver.")
+    storage.update_settings(**{setting: url})
+    logs.settings_changed(user_id, f"Imagem da tela {label} definida")
+    screen_images_panel(chat_id, user_id, f"✅ Imagem da tela {label} salva.")
 
 
 def set_log_channel_from_message(chat_id, user_id, message, text):
@@ -839,15 +849,16 @@ def request_pix_amount(chat_id, user_id):
         return
     ACTIVE_PIX_DEPOSITS.pop(chat_id, None)
     STATES[user_id] = {"state": "pix_amount", "data": {}}
-    panels.edit_active_panel(
-        chat_id,
-        "💰 <b>Adicionar saldo via Pix</b>\n\n"
-        "Envie apenas o valor que deseja depositar — nenhum dado pessoal é solicitado, "
-        "a cobrança é gerada automaticamente.\n\n"
-        "O valor integral será adicionado ao saldo após a confirmação do pagamento.\n\n"
-        "Valor mínimo: <b>R$ 10,00</b>.\n\nUse /cancel para cancelar.",
-        keyboards.pix_back_menu()
-    )
+    show_screen(chat_id, None, PIX_AMOUNT_TEXT, keyboards.pix_back_menu(), views.screen_image_url("deposit"))
+
+
+PIX_AMOUNT_TEXT = (
+    "💰 <b>Adicionar saldo via Pix</b>\n\n"
+    "Envie apenas o valor que deseja depositar — nenhum dado pessoal é solicitado, "
+    "a cobrança é gerada automaticamente.\n\n"
+    "O valor integral será adicionado ao saldo após a confirmação do pagamento.\n\n"
+    "Valor mínimo: <b>R$ 10,00</b>.\n\nUse /cancel para cancelar."
+)
 
 
 def reconcile_pix_deposits():
@@ -910,7 +921,7 @@ def handle_message(message):
             if command == "/produto" and len(parts) == 2:
                 show_product(chat_id, validators.parse_id(parts[1], "produto"))
             else:
-                show_as_new_panel(chat_id, *catalog_view(user_id))
+                show_screen(chat_id, None, *catalog_view(user_id), views.screen_image_url("catalog"), fresh=True)
         except ValueError as exc:
             show_as_new_panel(chat_id, f"⚠️ {escape(str(exc))}", keyboards.product_buttons(catalog_products()))
         return
@@ -995,8 +1006,8 @@ def handle_message(message):
             admin_settings_panel(chat_id, user_id, f"✅ Bônus de {label} {status}.")
         elif step == "cfg_logs":
             set_log_channel_from_message(chat_id, user_id, message, text)
-        elif step == "cfg_home_img":
-            set_home_image(chat_id, user_id, text)
+        elif step == "cfg_image":
+            set_screen_image(chat_id, user_id, state["data"]["screen"], text)
         elif step == "cfg_home_text":
             notices = "" if text.strip() == "0" else text[:1500]
             storage.update_settings(home_notices=notices)
@@ -1052,10 +1063,11 @@ def handle_message(message):
                 )
                 return
             except (InvalidOperation, ValueError) as exc:
-                panels.edit_active_panel(
-                    chat_id,
-                    f"Valor inválido: {escape(str(exc))}\nEnvie o valor que deseja pagar via Pix.",
-                    keyboards.back_menu()
+                show_screen(  # mantém a imagem da tela de saldo, só troca o texto
+                    chat_id, None,
+                    f"⚠️ Valor inválido: {escape(str(exc))}\nEnvie o valor que deseja pagar via Pix.\n\n"
+                    + PIX_AMOUNT_TEXT,
+                    keyboards.pix_back_menu(), views.screen_image_url("deposit")
                 )
                 return
             deposit = storage.start_pix_deposit(user_id, amount_cents)
@@ -1122,7 +1134,7 @@ def handle_callback(query):
             return
         elif data == "catalog" or data.startswith("catalog:"):
             page = int(data.split(":", 1)[1]) if ":" in data else 0
-            panels.edit_message(chat_id, message_id, *catalog_view(user_id, page))
+            show_screen(chat_id, message_id, *catalog_view(user_id, page), views.screen_image_url("catalog"))
         elif data == "howto":
             panels.edit_message(chat_id, message_id, views.how_it_works_text(), keyboards.howto_menu())
         elif data.startswith("product:"):
@@ -1162,7 +1174,7 @@ def handle_callback(query):
                     print("Não foi possível exibir as opções de suporte:", notify_exc)
                     return
         elif data == "profile":
-            panels.edit_message(chat_id, message_id, *views.profile_view(user_id))
+            show_screen(chat_id, message_id, *views.profile_view(user_id), views.screen_image_url("profile"))
         elif data == "history":
             text, keyboard = views.order_history_view(user_id, 0)
             panels.edit_message(chat_id, message_id, text, keyboard)

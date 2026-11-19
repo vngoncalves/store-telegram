@@ -162,7 +162,7 @@ Os comandos `/admin` e `/saldo` são restritos aos administradores. No painel, e
 ### Menu inicial
 
 O menu inicial mostra "👋 Seja bem-vindo(a) a maior loja de logins do telegram!", os avisos da loja e a carteira (ID e saldo). O botão **🛒 Logins** abre a vitrine. Com uma imagem configurada, o menu é enviado **como foto, com o texto e os botões logo abaixo** (sem a linha colorida das prévias de link). Se a imagem falhar, o menu aparece só como texto. Em **⚙️ Configurações**:
-- **🖼 Imagem do menu**: envie o link direto da imagem. O bot testa o link antes de salvar. Envie `0` para remover. Também dá pra usar `HOME_IMAGE_URL` no `.env`.
+- **🖼 Imagens das telas**: cada tela pode ter a sua imagem (🏠 Menu principal, 🛒 Logins, 👤 Meu perfil e 💰 Adicionar saldo). Escolha a tela e envie o link direto da imagem. O bot testa o link antes de salvar. Envie `0` para remover. A do menu principal também pode vir de `HOME_IMAGE_URL` no `.env`.
 - **📝 Avisos do menu**: envie os avisos, um por linha. Envie `0` para não mostrar nenhum.
 
 ### Bônus: boas-vindas e indicação

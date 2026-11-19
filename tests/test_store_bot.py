@@ -1255,6 +1255,63 @@ class HomeMenuTests(BotTestCase):
         self.assertIn("editMessageMedia", self.tg.methods())
         self.assertIn("Carteira", self.screen(USER)["content"])
 
+    def test_each_screen_has_its_own_image(self):
+        images = {
+            "catalog_image_url": "https://i.imgur.com/vitrine.jpg",
+            "profile_image_url": "https://i.imgur.com/perfil.jpg",
+            "deposit_image_url": "https://i.imgur.com/saldo.jpg",
+        }
+        storage.update_settings(**images)
+        storage.create_product("A", "", Decimal("10"))
+        self.send(USER, "/start")
+        self.assertEqual(self.screen(USER)["kind"], "text")  # menu principal sem imagem
+
+        self.click(USER, "catalog")
+        screen = self.screen(USER)
+        self.assertEqual((screen["kind"], screen["photo"]), ("photo", images["catalog_image_url"]))
+        self.assertIn("Comprar Unitário", screen["content"])
+        photo_message = panels.active_menu_message_id(USER)
+
+        self.click(USER, "profile")  # foto diferente: troca no lugar, mesma mensagem
+        self.assertEqual(panels.active_menu_message_id(USER), photo_message)
+        self.assertEqual(self.screen(USER)["photo"], images["profile_image_url"])  # 1º envio: pelo link
+        self.assertIn("MEU PERFIL", self.screen(USER)["content"])
+
+        self.click(USER, "wallet:deposit")
+        self.assertIn("saldo.jpg", self.screen(USER)["photo"])
+        self.assertIn("Adicionar saldo via Pix", self.screen(USER)["content"])
+        self.send(USER, "abc")  # valor inválido mantém a imagem e mostra o aviso
+        self.assertIn("saldo.jpg", self.screen(USER)["photo"])
+        self.assertIn("Valor inválido", self.screen(USER)["content"])
+
+        self.click(USER, "home")  # menu sem imagem: volta a ser texto
+        self.assertEqual(self.screen(USER)["kind"], "text")
+
+    def test_same_photo_only_changes_caption(self):
+        storage.update_settings(catalog_image_url="https://i.imgur.com/vitrine.jpg")
+        for number in range(25):
+            storage.create_product(f"P{number:02d}", "", Decimal("10"))
+        self.send(USER, "/start")
+        self.click(USER, "catalog")
+        self.tg.calls.clear()
+        self.click(USER, "catalog:1")  # próxima página: mesma foto
+        self.assertIn("editMessageCaption", self.tg.methods())
+        self.assertNotIn("editMessageMedia", self.tg.methods())
+
+    def test_admin_screen_images_menu(self):
+        self.send(ADMIN, "/admin")
+        self.click(ADMIN, "adm:cfg:images")
+        content = self.screen(ADMIN)["content"]
+        for label in ("Menu principal", "Logins (vitrine)", "Meu perfil", "Adicionar saldo"):
+            self.assertIn(label, content)
+        self.click(ADMIN, "adm:cfg:img:profile")
+        self.send(ADMIN, "https://i.imgur.com/perfil.jpg")
+        self.assertEqual(storage.get_settings()["profile_image_url"], "https://i.imgur.com/perfil.jpg")
+        self.assertIn("Meu perfil salva", self.screen(ADMIN)["content"])
+        self.click(ADMIN, "adm:cfg:img:profile")
+        self.send(ADMIN, "0")
+        self.assertEqual(storage.get_settings()["profile_image_url"], "")
+
     def test_broken_menu_image_falls_back_to_text(self):
         storage.update_settings(home_image_url="https://quebrado.com/x.jpg")
         self.tg.bad_photos.add("https://quebrado.com/x.jpg")
@@ -1264,14 +1321,14 @@ class HomeMenuTests(BotTestCase):
 
     def test_admin_sets_menu_image_and_notices(self):
         self.send(ADMIN, "/admin")
-        self.click(ADMIN, "adm:cfg:home_img")
+        self.click(ADMIN, "adm:cfg:img:home")
         self.tg.bad_photos.add("https://site.com/pagina")
         self.send(ADMIN, "https://site.com/pagina")
         self.assertIn("não conseguiu usar essa imagem", self.screen(ADMIN)["content"])
         self.assertEqual(storage.get_settings()["home_image_url"], "")
         self.send(ADMIN, self.IMAGE)
         self.assertEqual(storage.get_settings()["home_image_url"], self.IMAGE)
-        self.assertIn("Imagem do menu salva", self.screen(ADMIN)["content"])
+        self.assertIn("Imagem da tela 🏠 Menu principal salva", self.screen(ADMIN)["content"])
         self.assertFalse(any(m["kind"] == "photo" for m in self.tg.messages.values()))  # teste foi apagado
 
         self.click(ADMIN, "adm:cfg:home_text")
@@ -1282,7 +1339,7 @@ class HomeMenuTests(BotTestCase):
         self.assertIn("Entrega imediata!", content)
         self.assertNotIn("navegador 4G", content)
 
-        self.click(ADMIN, "adm:cfg:home_img")
+        self.click(ADMIN, "adm:cfg:img:home")
         self.send(ADMIN, "0")
         self.assertEqual(storage.get_settings()["home_image_url"], "")
 

@@ -201,9 +201,39 @@ def home_text(user_id):
     return "\n".join(lines)
 
 
+# Telas que podem ter imagem própria: chave → (configuração, nome mostrado no painel)
+SCREEN_IMAGES = {
+    "home": ("home_image_url", "🏠 Menu principal"),
+    "catalog": ("catalog_image_url", "🛒 Logins (vitrine)"),
+    "profile": ("profile_image_url", "👤 Meu perfil"),
+    "deposit": ("deposit_image_url", "💰 Adicionar saldo"),
+}
+
+
+def screen_image_url(screen):
+    """Imagem configurada para a tela (painel admin → ⚙️ Configurações → 🖼 Imagens das telas)."""
+    setting, _ = SCREEN_IMAGES[screen]
+    url = storage.get_settings()[setting]
+    if not url and screen == "home":
+        url = config.HOME_IMAGE_URL
+    return url
+
+
 def home_image_url():
-    """Imagem do menu inicial (painel admin → ⚙️ Configurações, ou HOME_IMAGE_URL no .env)."""
-    return storage.get_settings()["home_image_url"] or config.HOME_IMAGE_URL
+    return screen_image_url("home")
+
+
+def screen_images_text(note=None):
+    settings = storage.get_settings()
+    lines = ["🖼 <b>Imagens das telas</b>", "",
+             "Cada tela pode ter a sua imagem (vai como foto, com o texto e os botões embaixo).", ""]
+    for screen, (setting, label) in SCREEN_IMAGES.items():
+        url = settings[setting] or (config.HOME_IMAGE_URL if screen == "home" else "")
+        status = f"✅ <code>{escape(url[:50])}{'…' if len(url) > 50 else ''}</code>" if url else "— nenhuma"
+        lines.append(f"<b>{label}</b>\n └ {status}")
+    lines += ["", "Toque na tela que quer alterar."]
+    text = "\n".join(lines)
+    return f"{note}\n\n{text}" if note else text
 
 
 def delivery_view(product_name, encrypted_payload, price=None, balance=None):

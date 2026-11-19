@@ -34,6 +34,7 @@ def send_photo_panel(chat_id, photo_url, caption, reply_markup=None, replace_mes
         raise RuntimeError("Telegram não retornou o ID da foto enviada.")
     new_message_id = result["message_id"]
     remember_active_menu(chat_id, new_message_id, media="photo")
+    ACTIVE_PHOTO[chat_id] = photo_url
     if replace_message_id is not None and replace_message_id != new_message_id:
         try:
             telegram_api.delete_message(chat_id, replace_message_id)
@@ -87,6 +88,7 @@ def edit_photo(chat_id, message_id, photo_url, caption, reply_markup=None):
         if not telegram_api.is_not_modified(exc):
             raise
     remember_active_menu(chat_id, message_id, media="photo")
+    ACTIVE_PHOTO[chat_id] = photo_url
     return message_id
 
 
@@ -128,6 +130,7 @@ def edit_active_panel(chat_id, text, reply_markup, keep_photo=False, preview_url
 
 ACTIVE_MENUS = {}
 ACTIVE_MEDIA = {}  # cache do tipo do painel ("text"/"photo"); evita ler o arquivo a cada edição
+ACTIVE_PHOTO = {}  # link da foto mostrada no painel ativo (para só trocar a legenda quando é a mesma)
 
 
 def active_menu_is_photo(chat_id, message_id=None):
@@ -158,6 +161,8 @@ def active_menu_message_id(chat_id):
 
 
 def remember_active_menu(chat_id, message_id, media=None):
+    if ACTIVE_MENUS.get(chat_id) != message_id or media == "text":
+        ACTIVE_PHOTO.pop(chat_id, None)  # outro painel (ou texto): a foto conhecida não vale mais
     unchanged = ACTIVE_MENUS.get(chat_id) == message_id and (media is None or ACTIVE_MEDIA.get(chat_id) == media)
     ACTIVE_MENUS[chat_id] = message_id
     if media is not None:

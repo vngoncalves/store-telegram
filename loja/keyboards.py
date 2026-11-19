@@ -150,13 +150,26 @@ def admin_settings(settings):
         [{"text": "🎁 Alterar boas-vindas", "callback_data": "adm:cfg:welcome"}, welcome_toggle],
         [{"text": "🤝 Alterar indicação", "callback_data": "adm:cfg:ref"}, referral_toggle],
         [{"text": f"{rule} (trocar)", "callback_data": "adm:cfg:ref_mode"}],
-        [{"text": "🖼 Imagem do menu", "callback_data": "adm:cfg:home_img"},
+        [{"text": "🖼 Imagens das telas", "callback_data": "adm:cfg:images"},
          {"text": "📝 Avisos do menu", "callback_data": "adm:cfg:home_text"}],
         [{"text": "📢 Definir canal de logs", "callback_data": "adm:cfg:logs"}],
         [{"text": "🧪 Enviar teste", "callback_data": "adm:cfg:logs_test"},
          {"text": "⏸ Desligar logs", "callback_data": "adm:cfg:logs_off"}],
         [{"text": "⬅️ Painel admin", "callback_data": "admin"}],
     ])
+
+
+def screen_images_menu(screens):
+    """screens: lista de (chave, nome) das telas que podem ter imagem."""
+    rows = []
+    for index in range(0, len(screens), 2):
+        rows.append([{"text": label, "callback_data": f"adm:cfg:img:{key}"} for key, label in screens[index:index + 2]])
+    rows.append([{"text": "⬅️ Configurações", "callback_data": "adm:cfg"}])
+    return inline(rows)
+
+
+def admin_images_back():
+    return inline([[{"text": "❌ Cancelar", "callback_data": "adm:cfg:images"}]])
 
 
 def admin_settings_back():
