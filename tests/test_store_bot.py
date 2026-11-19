@@ -725,15 +725,30 @@ class WelcomeBonusTests(BotTestCase):
         super().setUp()
         storage.DEFAULT_SETTINGS["welcome_bonus"] = "10.00"  # valor padrão real
 
+    def welcome_messages(self, chat_id):
+        return [d["text"] for m, d in self.tg.calls
+                if m == "sendMessage" and d["chat_id"] == chat_id and "boas-vindas creditado" in d["text"]]
+
     def test_new_user_gets_10_once(self):
         self.send(USER, "/start")
         self.assertEqual(storage.get_user(USER)["balance"], "10.00")
-        content = self.screen(USER)["content"]
-        self.assertIn("Bônus de boas-vindas", content)
-        self.assertIn("R$ 10,00", content)
-        self.send(USER, "/start")  # voltar não dá bônus de novo
+        messages = self.welcome_messages(USER)
+        self.assertEqual(len(messages), 1)
+        self.assertIn("Os <b>R$ 10,00</b> de boas-vindas foram creditados na sua conta", messages[0])
+        self.assertIn("Saldo atual: <b>R$ 10,00</b>", messages[0])
+        self.assertIn("Carteira", self.screen(USER)["content"])  # o menu vem logo depois, embaixo
+        self.send(USER, "/start")  # voltar não dá bônus nem mensagem de novo
         self.assertEqual(storage.get_user(USER)["balance"], "10.00")
-        self.assertNotIn("Bônus de boas-vindas", self.screen(USER)["content"])
+        self.assertEqual(len(self.welcome_messages(USER)), 1)
+
+    def test_welcome_message_when_first_contact_is_a_button(self):
+        self.click(USER, "catalog", message_id=1)
+        self.assertEqual(len(self.welcome_messages(USER)), 1)
+
+    def test_no_message_when_bonus_disabled(self):
+        storage.update_settings(welcome_bonus="0")
+        self.send(USER, "/start")
+        self.assertEqual(self.welcome_messages(USER), [])
 
     def test_admin_changes_and_disables_welcome_bonus(self):
         self.send(ADMIN, "/admin")

@@ -629,6 +629,26 @@ def notify(chat_id, text):
         print(f"Não foi possível avisar {chat_id}:", exc)
 
 
+def send_welcome_bonus_message(chat_id, user_id):
+    """Mensagem própria avisando o usuário novo de que o bônus de boas-vindas caiu na conta."""
+    user = storage.get_user(user_id) or {}
+    bonus = user.get("welcome_bonus")
+    if not bonus:
+        return
+    name = escape(user.get("first_name") or "")
+    try:
+        telegram_api.send_message(
+            chat_id,
+            f"🎁 <b>Bônus de boas-vindas creditado!</b>\n\n"
+            f"Olá{', ' + name if name else ''}! Os <b>{validators.money(bonus)}</b> de boas-vindas "
+            f"foram creditados na sua conta.\n\n"
+            f"🏦 Saldo atual: <b>{validators.money(user.get('balance', '0'))}</b>\n"
+            "Use o saldo para comprar na loja. 🛍"
+        )
+    except Exception as exc:
+        print(f"Não foi possível enviar a mensagem de boas-vindas para {chat_id}:", exc)
+
+
 def register_referral(user, text):
     """Primeiro /start vindo de t.me/bot?start=ID_DE_QUEM_INDICOU."""
     parts = text.split(maxsplit=1)
@@ -788,18 +808,14 @@ def handle_message(message):
         register_referral(user, text)
     if is_new_user:
         logs.new_user(user_id)
+        send_welcome_bonus_message(chat_id, user_id)
     if command == "/pix":
         request_pix_amount(chat_id, user_id)
         return
     if command == "/start":
         STATES.pop(user_id, None)
         ACTIVE_PIX_DEPOSITS.pop(chat_id, None)
-        note = None
-        welcome = (storage.get_user(user_id) or {}).get("welcome_bonus") if is_new_user else None
-        if welcome:
-            note = (f"🎁 <b>Bônus de boas-vindas!</b>\n"
-                    f"Você ganhou <b>{validators.money(welcome)}</b> de saldo para usar na loja.")
-        home(chat_id, user_id, new_message=True, note=note)
+        home(chat_id, user_id, new_message=True)  # o menu vem logo abaixo da mensagem de boas-vindas
         return
     if command == "/cancel":
         STATES.pop(user_id, None)
@@ -1003,6 +1019,7 @@ def handle_callback(query):
         return
     if storage.ensure_user(user):
         logs.new_user(user_id)  # primeiro contato veio por um botão, não pelo /start
+        send_welcome_bonus_message(chat_id, user_id)
     if message_id is not None:
         panels.remember_active_menu(chat_id, message_id, media="photo" if message.get("photo") else "text")
     if data != "wallet:deposit" and not data.startswith("pix:"):
