@@ -229,7 +229,7 @@ def admin_product(product, prev_id=None, next_id=None):
         [{"text": "➕ Adicionar acessos", "callback_data": f"adm:p:{pid}:add"}],
         [{"text": "➖ Remover 1", "callback_data": f"adm:p:{pid}:rm1"},
          {"text": "🧹 Esvaziar estoque", "callback_data": f"adm:p:{pid}:clear"}],
-        [{"text": "💲 Preço", "callback_data": f"adm:p:{pid}:price"},
+        [{"text": "💵 Preço", "callback_data": f"adm:p:{pid}:price"},
          {"text": "✏️ Nome", "callback_data": f"adm:p:{pid}:name"},
          {"text": "📝 Descrição", "callback_data": f"adm:p:{pid}:desc"}],
         [{"text": "🖼 Imagem", "callback_data": f"adm:p:{pid}:img"}, {"text": toggle, "callback_data": f"adm:p:{pid}:toggle"}],

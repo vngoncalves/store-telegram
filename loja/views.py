@@ -297,9 +297,9 @@ def product_login_text(product, accesses, index, caption=False):
     lines.append("")
     if total:
         lines += _login_info_lines(accesses[index])
-        lines += ["", f"💲 Preço: <b>{validators.money(product['price'])}</b>"]
+        lines += ["", f"💵 Preço: <b>{validators.money(product['price'])}</b>"]
     else:
-        lines += [f"💲 Preço: <b>{validators.money(product['price'])}</b>", "",
+        lines += [f"💵 Preço: <b>{validators.money(product['price'])}</b>", "",
                   "⚠️ Nenhum login disponível no momento. Volte mais tarde!"]
     return "\n".join(lines)
 
@@ -396,7 +396,7 @@ def admin_product_text(product, note=None):
         f"⚙️ <b>Produto #{product['id']}</b>\n\n"
         f"📦 <b>{escape(product['name'])}</b>\n"
         f"{escape(product['description'] or '—')}\n\n"
-        f"💲 Preço: <b>{validators.money(product['price'])}</b>\n"
+        f"💵 Preço: <b>{validators.money(product['price'])}</b>\n"
         f"📊 Estoque: {stock_line}\n"
         f"🖼 Imagem: {'✅ definida' if product.get('image') else '— nenhuma'}\n"
         f"Status: {status}"

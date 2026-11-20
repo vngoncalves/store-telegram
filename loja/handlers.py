@@ -522,7 +522,7 @@ def handle_admin_product_action(chat_id, message_id, user_id, data):
     elif action in {"price", "name", "desc"}:
         STATES[user_id] = {"state": f"edit_{action}", "data": {"product_id": product_id}}
         prompt = {
-            "price": f"💲 Preço atual: <b>{validators.money(product['price'])}</b>\nEnvie o novo preço. Exemplo: 29,90",
+            "price": f"💵 Preço atual: <b>{validators.money(product['price'])}</b>\nEnvie o novo preço. Exemplo: 29,90",
             "name": f"✏️ Nome atual: <b>{name}</b>\nEnvie o novo nome:",
             "desc": "📝 Envie a nova descrição do produto:",
         }[action]
@@ -1025,7 +1025,7 @@ def handle_message(message):
             if step == "edit_price":
                 price = validators.parse_money(text)
                 storage.update_product(product_id, price=price)
-                note = f"💲 Preço alterado para {validators.money(price)}."
+                note = f"💵 Preço alterado para {validators.money(price)}."
                 detail = f"Preço: {validators.money(before.get('price', 0))} → {validators.money(price)}"
             elif step == "edit_name":
                 storage.update_product(product_id, name=text[:180])

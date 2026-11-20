@@ -157,7 +157,7 @@ Os comandos `/admin` e `/saldo` são restritos aos administradores. No painel, e
 
 - **➕ Adicionar acessos**: mande um por linha: `site | login | senha | pedidos | valor total` (o site é opcional, ex.: `joao@gmail.com | senha123 | 12 | 350,00`). Dá pra colar vários de uma vez e continuar mandando. A mensagem com as senhas é apagada do chat depois de salva.
 - **➖ Remover 1** / **🧹 Esvaziar estoque**: retira os acessos mais recentes.
-- **💲 Preço**, **✏️ Nome**, **📝 Descrição**, **⏸ Pausar/▶️ Ativar vendas** e **🗑 Excluir produto**. As compras já feitas continuam no histórico do cliente.
+- **💵 Preço**, **✏️ Nome**, **📝 Descrição**, **⏸ Pausar/▶️ Ativar vendas** e **🗑 Excluir produto**. As compras já feitas continuam no histórico do cliente.
 
 ### Menu inicial
 

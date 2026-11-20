@@ -496,7 +496,7 @@ def purchase(user_id, result):
         ("👤 Cliente", _person(user_id, user)),
         ("📦 Produto", f"<b>{escape(product['name'])}</b> (#{product['id']})"),
         ("🔐 Login vendido", login_info),
-        ("💲 Preço", f"<b>{money(price)}</b>"),
+        ("💵 Preço", f"<b>{money(price)}</b>"),
         ("💸 Saldo", f"{money(after + price)} → <b>{money(after)}</b>"),
         ("🧾 Pedido", f"#{result['order_id']}"),
         ("📊 Estoque restante", f"<b>{stock}</b>" + (" ⚠️ ESGOTOU" if not stock else "")),
@@ -558,7 +558,7 @@ def product_event(admin_id, title, product_id, detail=None, name=None):
     fields = [("🛠 Admin", _person(admin_id)), ("📦 Produto", f"<b>{label}</b> (#{product_id})")]
     if product:
         fields += [
-            ("💲 Preço", money(product["price"])),
+            ("💵 Preço", money(product["price"])),
             ("📊 Estoque", str(product["stock"])),
             ("📌 Status", "à venda" if product["active"] else "pausado"),
         ]
