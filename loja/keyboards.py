@@ -131,6 +131,7 @@ def admin_menu():
          {"text": "🆕 Cadastrar produto", "callback_data": "adm:add_product"}],
         [{"text": "💰 Adicionar saldo", "callback_data": "adm:add_balance"},
          {"text": "📨 Reenviar entrega", "callback_data": "adm:resend"}],
+        [{"text": "📢 Transmitir mensagem", "callback_data": "adm:bc"}],
         [{"text": "⚙️ Configurações (bônus)", "callback_data": "adm:cfg"}],
         [{"text": "⬅️ Menu principal", "callback_data": "home"}]
     ])
@@ -170,6 +171,28 @@ def screen_images_menu(screens):
 
 def admin_images_back():
     return inline([[{"text": "❌ Cancelar", "callback_data": "adm:cfg:images"}]])
+
+
+def broadcast_compose():
+    return inline([[{"text": "❌ Cancelar", "callback_data": "admin"}]])
+
+
+def broadcast_confirm(total):
+    return inline([
+        [{"text": f"✅ Enviar para {total} usuário(s)", "callback_data": "adm:bc:go"}],
+        [{"text": "✏️ Trocar mensagem", "callback_data": "adm:bc"},
+         {"text": "❌ Cancelar", "callback_data": "admin"}],
+    ])
+
+
+def broadcast_running():
+    return inline([[{"text": "⏹ Parar transmissão", "callback_data": "adm:bc:stop"}],
+                   [{"text": "🔄 Atualizar", "callback_data": "adm:bc"}]])
+
+
+def broadcast_done():
+    return inline([[{"text": "📢 Nova transmissão", "callback_data": "adm:bc"},
+                    {"text": "⬅️ Painel admin", "callback_data": "admin"}]])
 
 
 def admin_settings_back():

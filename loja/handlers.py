@@ -7,7 +7,9 @@ from html import escape
 
 import qrcode.exceptions
 
-from . import config, keyboards, logs, panels, payments, security, storage, telegram_api, validators, views
+from . import (
+    broadcast, config, keyboards, logs, panels, payments, security, storage, telegram_api, validators, views,
+)
 
 
 # Estado em memória: cobrança Pix exibida em cada chat e etapa atual de cada fluxo de texto.
@@ -169,8 +171,57 @@ def handle_inline_query(query):
 ADMIN_STEPS = {
     "product_name", "product_description", "product_price", "stock_add", "admin_pick",
     "edit_price", "edit_name", "edit_desc", "balance_user", "balance_amount", "resend_order",
-    "cfg_welcome", "cfg_ref", "cfg_logs", "edit_image", "cfg_image", "cfg_home_text",
+    "cfg_welcome", "cfg_ref", "cfg_logs", "edit_image", "cfg_image", "cfg_home_text", "broadcast_wait",
 }
+
+
+def broadcast_open(chat_id, user_id, message_id=None):
+    """Tela inicial da transmissão (ou o progresso, se já houver uma rodando)."""
+    if broadcast.is_running():
+        _show(chat_id, message_id, views.broadcast_progress_text(broadcast.CURRENT), keyboards.broadcast_running())
+        return
+    STATES[user_id] = {"state": "broadcast_wait", "data": {"message_ids": [], "media_group": None, "kind": None}}
+    _show(chat_id, message_id, views.broadcast_compose_text(storage.user_stats()), keyboards.broadcast_compose())
+
+
+def broadcast_receive(chat_id, user_id, message, state):
+    """O admin mandou a mensagem a transmitir (qualquer tipo). Álbuns chegam em partes e são juntados."""
+    data = state["data"]
+    group = message.get("media_group_id")
+    if group and data.get("media_group") == group:
+        data["message_ids"].append(message["message_id"])
+    else:
+        data.update(message_ids=[message["message_id"]], media_group=group, kind=views.message_kind(message))
+    data["chat_id"] = chat_id
+    targets = [uid for uid in storage.broadcast_targets() if uid != chat_id]
+    show_as_new_panel(
+        chat_id, views.broadcast_confirm_text(data["kind"], len(data["message_ids"]), len(targets)),
+        keyboards.broadcast_confirm(len(targets))
+    )
+
+
+def broadcast_go(chat_id, user_id, message_id):
+    state = STATES.get(user_id) or {}
+    data = state.get("data") or {}
+    if state.get("state") != "broadcast_wait" or not data.get("message_ids"):
+        raise ValueError("Envie a mensagem que deseja transmitir primeiro.")
+    targets = [uid for uid in storage.broadcast_targets() if uid != chat_id]
+    if not targets:
+        raise ValueError("Ainda não há usuários para receber a transmissão.")
+    STATES.pop(user_id, None)
+    source = {"chat_id": data["chat_id"], "message_ids": list(data["message_ids"])}
+
+    def on_progress(job):
+        panels.edit_message(chat_id, message_id, views.broadcast_progress_text(job), keyboards.broadcast_running())
+
+    def on_finish(job):
+        panels.edit_message(chat_id, message_id, views.broadcast_report_text(job), keyboards.broadcast_done())
+        logs.broadcast_finished(user_id, job, data.get("kind"))
+
+    job = broadcast.start(source, targets, on_progress, on_finish)
+    logs.out(f"Transmissão iniciada pelo admin {user_id} para {len(targets)} usuário(s).")
+    if not job.get("finished"):
+        panels.edit_message(chat_id, message_id, views.broadcast_progress_text(job), keyboards.broadcast_running())
 
 
 def admin_settings_panel(chat_id, user_id, note=None, message_id=None):
@@ -973,6 +1024,9 @@ def handle_message(message):
     if step in ADMIN_STEPS and not is_admin(user_id):
         STATES.pop(user_id, None)
         return
+    if step == "broadcast_wait":  # aceita qualquer tipo de mensagem (foto, arquivo, áudio...)
+        broadcast_receive(chat_id, user_id, message, state)
+        return
     if not text and step != "cfg_logs":  # post encaminhado do canal pode ser só foto
         panels.edit_active_panel(chat_id, "Envie a resposta como texto ou use /cancel.", keyboards.back_menu())
         return
@@ -1277,6 +1331,17 @@ def handle_callback(query):
             parts = data.split(":")
             page = int(parts[2]) if len(parts) > 2 else 0
             admin_picker_panel(chat_id, user_id, parts[1], page, message_id)
+        elif data == "adm:bc":
+            admin_only(user_id)
+            broadcast_open(chat_id, user_id, message_id)
+        elif data == "adm:bc:go":
+            admin_only(user_id)
+            broadcast_go(chat_id, user_id, message_id)
+        elif data == "adm:bc:stop":
+            admin_only(user_id)
+            broadcast.stop()
+            panels.edit_message(chat_id, message_id, "⏹ Parando a transmissão… o relatório aparece em instantes.",
+                                keyboards.broadcast_done())
         elif data == "adm:cfg" or data.startswith("adm:cfg:"):
             admin_only(user_id)
             handle_admin_settings(chat_id, message_id, user_id, data)

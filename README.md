@@ -159,6 +159,16 @@ Os comandos `/admin` e `/saldo` são restritos aos administradores. No painel, e
 - **➖ Remover 1** / **🧹 Esvaziar estoque**: retira os acessos mais recentes.
 - **💵 Preço**, **✏️ Nome**, **📝 Descrição**, **⏸ Pausar/▶️ Ativar vendas** e **🗑 Excluir produto**. As compras já feitas continuam no histórico do cliente.
 
+### Transmitir mensagem
+
+`/admin` → **📢 Transmitir mensagem**. Envie para o bot a mensagem do jeito que ela deve chegar: texto (com formatação), foto, foto com legenda, vídeo, GIF, arquivo, áudio, voz, figurinha, enquete ou um álbum. O bot mostra o tipo da mensagem e quantas pessoas vão receber, e só envia depois de **✅ Enviar**.
+
+- A mensagem é **copiada exatamente igual** (sem "encaminhado de").
+- O envio roda em segundo plano (~20 mensagens por segundo), com barra de progresso, botão **⏹ Parar** e relatório no final (enviadas, quem bloqueou o bot, falhas). O canal de logs também recebe o resumo.
+- Quem bloqueou o bot é marcado e fica fora das próximas transmissões até voltar a usá-lo.
+
+Cada usuário que fala com o bot fica salvo em `data/store.json` com ID, nome, sobrenome, @, idioma, se é Premium, data de cadastro e último acesso (atualizado no máximo 1 vez por hora).
+
 ### Menu inicial
 
 O menu inicial mostra "👋 Seja bem-vindo(a) a maior loja de logins do telegram!", os avisos da loja e a carteira (ID e saldo). O botão **🛒 Logins** abre a vitrine. Com uma imagem configurada, o menu é enviado **como foto, com o texto e os botões logo abaixo** (sem a linha colorida das prévias de link). Se a imagem falhar, o menu aparece só como texto. Em **⚙️ Configurações**:

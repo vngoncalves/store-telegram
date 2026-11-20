@@ -322,8 +322,11 @@ def admin_home_text(products):
     total = sum(product["stock"] for product in products)
     on_sale = sum(1 for product in products if product["active"])
     sold_out = sum(1 for product in products if product["active"] and not product["stock"])
+    users = storage.user_stats()
     return (
         "⚙️ <b>Painel administrativo</b>\n\n"
+        f"👥 Usuários: <b>{users['total']}</b>"
+        + (f" ({users['blocked']} bloquearam o bot)" if users["blocked"] else "") + "\n\n"
         "📊 <b>Resumo do estoque</b>\n"
         f" ├ Produtos: <b>{len(products)}</b> ({on_sale} à venda)\n"
         f" ├ Unidades em estoque: <b>{total}</b>\n"
@@ -366,6 +369,88 @@ def admin_settings_text(settings, note=None):
         "<i>As mudanças valem na hora, para os próximos usuários.</i>"
     )
     return f"{note}\n\n{text}" if note else text
+
+
+MESSAGE_KINDS = [
+    ("photo", "🖼 Foto"), ("video", "🎬 Vídeo"), ("animation", "🎞 GIF"), ("document", "📎 Arquivo"),
+    ("audio", "🎵 Áudio"), ("voice", "🎙 Mensagem de voz"), ("video_note", "⏺ Vídeo redondo"),
+    ("sticker", "🧩 Figurinha"), ("poll", "📊 Enquete"), ("location", "📍 Localização"),
+    ("contact", "👤 Contato"), ("text", "💬 Texto"),
+]
+
+
+def message_kind(message):
+    for key, label in MESSAGE_KINDS:
+        if message.get(key) is not None:
+            if key in {"photo", "video", "animation", "document", "audio"} and message.get("caption"):
+                return f"{label} com texto"
+            return label
+    return "📨 Mensagem"
+
+
+def broadcast_compose_text(stats):
+    return (
+        "📢 <b>Transmitir mensagem</b>\n\n"
+        f"👥 Vai para <b>{stats['reachable']}</b> usuário(s)"
+        + (f" ({stats['blocked']} bloquearam o bot e ficam de fora)" if stats["blocked"] else "") + ".\n\n"
+        "Envie agora a mensagem do jeito que ela deve chegar:\n"
+        "💬 texto (negrito, links e emojis são mantidos)\n"
+        "🖼 foto, 🎬 vídeo ou 🎞 GIF, com ou sem legenda\n"
+        "📎 arquivo, 🎵 áudio, 🎙 voz, 🧩 figurinha\n"
+        "🗂 álbum (várias fotos/vídeos de uma vez)\n\n"
+        "Antes de enviar, o bot pede confirmação."
+    )
+
+
+def broadcast_confirm_text(kind, items, targets):
+    album = f" (álbum com {items} itens)" if items > 1 else ""
+    return (
+        "📢 <b>Confirmar transmissão</b>\n\n"
+        f"Mensagem: <b>{kind}</b>{album} — é a mensagem logo acima.\n"
+        f"Destino: <b>{targets}</b> usuário(s).\n\n"
+        "Ela será copiada exatamente como você enviou. Confirmar?"
+    )
+
+
+def broadcast_progress_text(job):
+    done = job["sent"] + job["blocked"] + job["failed"]
+    total = max(job["total"], 1)
+    filled = round(10 * done / total)
+    bar = "▓" * filled + "░" * (10 - filled)
+    elapsed = time_label(time_monotonic() - job["started"])
+    return (
+        "📢 <b>Transmitindo…</b>\n\n"
+        f"{bar} {done}/{job['total']} ({100 * done // total}%)\n\n"
+        f"✅ Enviadas: {job['sent']}\n🚫 Bloquearam o bot: {job['blocked']}\n⚠️ Falhas: {job['failed']}\n"
+        f"⏱ {elapsed}"
+    )
+
+
+def broadcast_report_text(job):
+    stopped = "⏹ <b>Transmissão interrompida</b>" if job["stop"] else "✅ <b>Transmissão concluída</b>"
+    pending = job["total"] - job["sent"] - job["blocked"] - job["failed"]
+    lines = [
+        stopped, "",
+        f"✅ Enviadas: <b>{job['sent']}</b>",
+        f"🚫 Bloquearam o bot: {job['blocked']}",
+        f"⚠️ Falhas: {job['failed']}",
+    ]
+    if pending > 0:
+        lines.append(f"⏸ Não enviadas (parou antes): {pending}")
+    lines.append(f"⏱ Tempo: {time_label(job.get('elapsed', 0))}")
+    if job["blocked"]:
+        lines += ["", "<i>Quem bloqueou fica fora das próximas transmissões até voltar a usar o bot.</i>"]
+    return "\n".join(lines)
+
+
+def time_label(seconds):
+    seconds = int(seconds)
+    return f"{seconds // 60}min {seconds % 60}s" if seconds >= 60 else f"{seconds}s"
+
+
+def time_monotonic():
+    import time
+    return time.monotonic()
 
 
 def admin_picker_text(products, mode="products", search=None):

@@ -48,6 +48,8 @@ class FakeTelegram:
         self.unknown_chats = set()
         self.bad_photos = set()
         self.photo_sends = []
+        self.blocked_chats = set()
+        self.copies = []
         self.bot_member = {"status": "administrator", "can_post_messages": True}
 
     def _new(self, chat_id, kind, content):
@@ -81,6 +83,13 @@ class FakeTelegram:
             self.messages[(int(data["chat_id"]), message["message_id"])]["photo"] = data["photo"]
             self.photo_sends.append(data["photo"])
             return {**message, "photo": [{"file_id": "small"}, {"file_id": "fid:" + data["photo"].replace("fid:", "")}]}
+        if method in {"copyMessage", "copyMessages"}:
+            if int(data["chat_id"]) in self.blocked_chats:
+                raise telegram_api.TelegramAPIError(
+                    "Telegram HTTP 403", 403, "Forbidden: bot was blocked by the user")
+            ids = [data["message_id"]] if method == "copyMessage" else json.loads(data["message_ids"])
+            self.copies.append((int(data["chat_id"]), int(data["from_chat_id"]), [int(i) for i in ids]))
+            return {"message_id": self.next_id} if method == "copyMessage" else [{"message_id": 1}]
         if method == "editMessageMedia":
             key = (int(data["chat_id"]), int(data["message_id"]))
             if key not in self.messages:
@@ -1370,6 +1379,144 @@ class HomeMenuTests(BotTestCase):
         self.send(USER, "/start")
         data = [d for m, d in self.tg.calls if m == "sendMessage" and d["chat_id"] == USER][-1]
         self.assertEqual(json.loads(data["link_preview_options"]), {"is_disabled": True})
+
+
+class BroadcastTests(BotTestCase):
+    def setUp(self):
+        super().setUp()
+        from loja import broadcast
+        self.broadcast = broadcast
+        broadcast.CURRENT = None
+        self._interval = broadcast.SEND_INTERVAL
+        broadcast.SEND_INTERVAL = 0
+
+    def tearDown(self):
+        if self.broadcast.CURRENT and self.broadcast.CURRENT.get("thread"):
+            self.broadcast.CURRENT["thread"].join(timeout=5)
+        self.broadcast.SEND_INTERVAL = self._interval
+        self.broadcast.CURRENT = None
+        super().tearDown()
+
+    def admin_message(self, message_id, **content):
+        handlers.process_update({"update_id": 5, "message": {
+            "chat": {"id": ADMIN, "type": "private"}, "from": {"id": ADMIN, "first_name": "A"},
+            "message_id": message_id, **content,
+        }})
+
+    def wait(self):
+        self.broadcast.CURRENT["thread"].join(timeout=10)
+        self.assertTrue(self.broadcast.CURRENT["finished"])
+
+    def test_user_info_is_saved(self):
+        handlers.process_update({"update_id": 1, "message": {
+            "chat": {"id": USER, "type": "private"}, "text": "/start", "message_id": 3,
+            "from": {"id": USER, "first_name": "Ana", "last_name": "Silva", "username": "ana",
+                     "language_code": "pt-br", "is_premium": True},
+        }})
+        user = storage.get_user(USER)
+        for key, value in (("first_name", "Ana"), ("last_name", "Silva"), ("username", "ana"),
+                           ("language_code", "pt-br"), ("is_premium", True), ("telegram_id", USER)):
+            self.assertEqual(user[key], value)
+        self.assertIn("last_seen", user)
+        self.assertIn("created_at", user)
+
+    def test_broadcast_photo_with_caption_to_everyone(self):
+        for uid in (USER, 600, 700):
+            self.send(uid, "/start")
+        self.tg.blocked_chats.add(700)
+        self.send(ADMIN, "/admin")
+        self.click(ADMIN, "adm:bc")
+        self.assertIn("Vai para <b>4</b>", self.screen(ADMIN)["content"])  # 3 clientes + admin
+        self.admin_message(900, photo=[{"file_id": "x"}], caption="Promoção!")
+        confirm = self.screen(ADMIN)["content"]
+        self.assertIn("Foto com texto", confirm)
+        self.assertIn("<b>3</b> usuário(s)", confirm)  # o admin não recebe a própria mensagem
+        self.click(ADMIN, "adm:bc:go")
+        self.wait()
+        self.assertEqual(sorted(chat for chat, _, _ in self.tg.copies), [USER, 600])
+        self.assertTrue(all(src == ADMIN and ids == [900] for _, src, ids in self.tg.copies))
+        report = self.screen(ADMIN)["content"]
+        self.assertIn("Transmissão concluída", report)
+        self.assertIn("Enviadas: <b>2</b>", report)
+        self.assertIn("Bloquearam o bot: 1", report)
+        self.assertTrue(storage.get_user(700)["blocked"])
+
+        # quem bloqueou fica fora da próxima; ao voltar a usar o bot, volta a receber
+        self.assertNotIn(700, storage.broadcast_targets())
+        self.send(700, "/start")
+        self.assertIn(700, storage.broadcast_targets())
+
+    def test_album_is_sent_together(self):
+        self.send(USER, "/start")
+        self.click(ADMIN, "adm:bc", message_id=1)
+        for mid in (50, 51, 52):
+            self.admin_message(mid, photo=[{"file_id": "x"}], media_group_id="alb1")
+        self.assertIn("álbum com 3 itens", self.screen(ADMIN)["content"])
+        self.click(ADMIN, "adm:bc:go")
+        self.wait()
+        self.assertEqual(self.tg.copies, [(USER, ADMIN, [50, 51, 52])])
+
+    def test_text_file_and_other_kinds(self):
+        from loja import views
+        self.assertEqual(views.message_kind({"text": "oi"}), "💬 Texto")
+        self.assertEqual(views.message_kind({"document": {}, "caption": "x"}), "📎 Arquivo com texto")
+        self.assertEqual(views.message_kind({"voice": {}}), "🎙 Mensagem de voz")
+        self.assertEqual(views.message_kind({"sticker": {}}), "🧩 Figurinha")
+        self.send(USER, "/start")
+        self.click(ADMIN, "adm:bc", message_id=1)
+        self.admin_message(70, document={"file_id": "d"})
+        self.assertIn("Arquivo", self.screen(ADMIN)["content"])
+        self.admin_message(71, text="Mensagem nova, trocou de ideia")  # a última substitui a anterior
+        self.click(ADMIN, "adm:bc:go")
+        self.wait()
+        self.assertEqual(self.tg.copies, [(USER, ADMIN, [71])])
+
+    def test_stop_and_rate_limit(self):
+        for uid in range(1000, 1006):
+            self.send(uid, "/start")
+        waits = []
+        original_sleep = self.broadcast.time.sleep
+        calls = {"n": 0}
+        original_copy = self.broadcast._copy
+
+        def flaky_copy(chat_id, source):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise telegram_api.TelegramAPIError("429", 429, "Too Many Requests", {"retry_after": 2})
+            return original_copy(chat_id, source)
+
+        self.broadcast._copy = flaky_copy
+        self.broadcast.time.sleep = lambda s: waits.append(s)
+        try:
+            self.click(ADMIN, "adm:bc", message_id=1)
+            self.admin_message(80, text="oi")
+            self.click(ADMIN, "adm:bc:go")
+            self.wait()
+        finally:
+            self.broadcast._copy = original_copy
+            self.broadcast.time.sleep = original_sleep
+        self.assertIn(3, waits)  # esperou o retry_after + 1
+        self.assertEqual(self.broadcast.CURRENT["sent"], 6)
+
+    def test_admin_can_stop(self):
+        job = {"stop": False, "finished": False}
+        self.broadcast.CURRENT = job
+        self.assertTrue(self.broadcast.stop())
+        self.assertTrue(job["stop"])
+        self.broadcast.CURRENT = None
+
+    def test_non_admin_cannot_broadcast(self):
+        self.send(USER, "/start")
+        self.click(USER, "adm:bc")
+        self.assertIn("não tem permissão", self.screen(USER)["content"])
+        self.assertNotIn(USER, handlers.STATES)
+
+    def test_go_without_message_is_refused(self):
+        self.send(USER, "/start")
+        self.send(ADMIN, "/admin")
+        self.click(ADMIN, "adm:bc:go")
+        self.assertIn("Envie a mensagem", self.screen(ADMIN)["content"])
+        self.assertIsNone(self.broadcast.CURRENT)
 
 
 class HardeningTests(BotTestCase):

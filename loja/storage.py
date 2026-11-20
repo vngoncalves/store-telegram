@@ -185,12 +185,26 @@ def ensure_user(tg_user):
             "telegram_id": int(tg_user["id"]),
             "username": tg_user.get("username"),
             "first_name": tg_user.get("first_name"),
+            "last_name": tg_user.get("last_name"),
+            "language_code": tg_user.get("language_code"),
+            "is_premium": bool(tg_user.get("is_premium")),
+            "is_bot": bool(tg_user.get("is_bot")),
         }
-        if not created and all(user.get(key) == value for key, value in profile.items()):
+        now = datetime.now().astimezone()
+        try:
+            last_seen = datetime.fromisoformat(user.get("last_seen", ""))
+        except ValueError:
+            last_seen = None
+        seen_recently = last_seen is not None and now - last_seen < timedelta(hours=1)
+        unchanged = all(user.get(key) == value for key, value in profile.items())
+        if not created and unchanged and seen_recently and not user.get("blocked"):
             return False  # nada mudou: não regrava o arquivo a cada clique
         # Atualiza só os dados do Telegram; saldo, indicação etc. são preservados.
         user.update(profile)
-        user["updated_at"] = _now()
+        user["last_seen"] = _now()  # atualizado no máximo 1x por hora
+        user["blocked"] = False     # voltou a falar com o bot: pode receber transmissões de novo
+        if not unchanged or created:
+            user["updated_at"] = _now()
         if created:
             welcome = Decimal(_settings(data)["welcome_bonus"])
             if welcome > 0:
@@ -313,6 +327,36 @@ def referral_stats(user_id):
 def count_users():
     with _LOCK:
         return len(_read()["users"])
+
+
+def broadcast_targets():
+    """IDs de quem pode receber transmissões (exclui quem bloqueou o bot e outros bots)."""
+    with _LOCK:
+        return [
+            int(uid) for uid, user in _read()["users"].items()
+            if not user.get("blocked") and not user.get("is_bot")
+        ]
+
+
+def user_stats():
+    with _LOCK:
+        users = list(_read()["users"].values())
+    blocked = sum(1 for user in users if user.get("blocked"))
+    return {"total": len(users), "blocked": blocked, "reachable": len(users) - blocked}
+
+
+def mark_blocked(user_ids):
+    """Marca quem bloqueou o bot (ou apagou a conta); deixa de receber transmissões até voltar."""
+    user_ids = {str(uid) for uid in user_ids}
+    if not user_ids:
+        return
+    with _LOCK:
+        data = _read()
+        for uid in user_ids:
+            if uid in data["users"]:
+                data["users"][uid]["blocked"] = True
+                data["users"][uid]["blocked_at"] = _now()
+        _write(data)
 
 
 def deposit_count(user_id):

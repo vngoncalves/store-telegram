@@ -567,6 +567,19 @@ def product_event(admin_id, title, product_id, detail=None, name=None):
 
 
 @_safe
+def broadcast_finished(admin_id, job, kind=None):
+    return send("📢", "TRANSMISSÃO INTERROMPIDA" if job.get("stop") else "TRANSMISSÃO CONCLUÍDA", [
+        ("🛠 Admin", _person(admin_id)),
+        ("📨 Mensagem", escape(kind or "—")),
+        ("👥 Destino", str(job["total"])),
+        ("✅ Enviadas", f"<b>{job['sent']}</b>"),
+        ("🚫 Bloquearam o bot", str(job["blocked"])),
+        ("⚠️ Falhas", str(job["failed"])),
+        ("⏱ Tempo", f"{int(job.get('elapsed', 0))}s"),
+    ])
+
+
+@_safe
 def settings_changed(admin_id, detail):
     settings = storage.get_settings()
     rule = " (no 1º depósito)" if settings["referral_requires_deposit"] else " (ao entrar)"
