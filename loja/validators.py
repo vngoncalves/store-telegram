@@ -111,4 +111,5 @@ def valid_cpf(value):
 
 
 def money(value):
-    return f"R$ {Decimal(value):.2f}".replace(".", ",")
+    """Formato brasileiro: R$ 1.057,00"""
+    return "R$ " + f"{Decimal(value):,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")

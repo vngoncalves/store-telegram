@@ -1085,22 +1085,23 @@ class LoginCarouselTests(BotTestCase):
         self.setup_logins()
         self.click(USER, "product:1")
         content = self.screen(USER)["content"]
-        self.assertIn("Login 1 de 3", content.split("\n")[0])  # no topo, ao lado do nome
-        self.assertIn("Quantidade de pedidos: <b>12</b>", content)
-        self.assertIn("Valor total dos pedidos: <b>R$ 350,00</b>", content)
+        self.assertIn("Login 1/3", content.split("\n")[0])  # no topo, ao lado do nome
+        self.assertIn("Pedidos: 12", content)
+        self.assertIn("Total em pedidos: R$ 350,00", content)
         self.assertNotIn("aluno@exemplo.com", content)  # credenciais nunca aparecem antes da compra
         self.assertNotIn("Estoque", content)
+        self.assertNotIn("Informações do login", content)
         rows = self.markup()
         self.assertEqual([b["text"] for b in rows[0]], ["⬅️", "🔐 1/3", "➡️"])
         self.assertEqual([b["text"] for b in rows[1]], ["✅ Comprar", "❌ Cancelar"])
 
         self.click(USER, "product:1:1")
         content = self.screen(USER)["content"]
-        self.assertIn("Login 2 de 3", content)
-        self.assertIn("Quantidade de pedidos: <b>3</b>", content)
+        self.assertIn("Login 2/3", content)
+        self.assertIn("Pedidos: 3", content)
         self.assertIn("R$ 45,50", content)
         self.click(USER, "product:1:-1")  # ⬅️ no primeiro volta para o último
-        self.assertIn("Login 3 de 3", self.screen(USER)["content"])
+        self.assertIn("Login 3/3", self.screen(USER)["content"])
         self.click(USER, "catalog")
         self.assertIn("Comprar Unitário", self.screen(USER)["content"])
 
@@ -1122,7 +1123,7 @@ class LoginCarouselTests(BotTestCase):
         self.click(USER, buy)
         content = self.screen(USER)["content"]
         self.assertIn("acabou de ser vendido", content)
-        self.assertIn("Login 1 de 2", content)
+        self.assertIn("Login 1/2", content)
         self.assertEqual(storage.purchase_stats(USER)["count"], 1)
 
     def test_add_stock_requires_orders_and_total(self):
@@ -1139,7 +1140,7 @@ class LoginCarouselTests(BotTestCase):
         self.create_product_with_license()
         self.click(ADMIN, "adm:p:1:v:0")
         content = self.screen(ADMIN)["content"]
-        self.assertIn("Quantidade de pedidos: <b>12</b>", content)
+        self.assertIn("Pedidos: 12", content)
         self.assertIn("aluno@exemplo.com", content)
 
     def test_photo_caption_changes_when_browsing(self):
@@ -1149,7 +1150,7 @@ class LoginCarouselTests(BotTestCase):
         photo_id = panels.active_menu_message_id(USER)
         self.click(USER, "product:1:2")
         self.assertEqual(panels.active_menu_message_id(USER), photo_id)  # mesma foto, só a legenda mudou
-        self.assertIn("Login 3 de 3", self.screen(USER)["content"])
+        self.assertIn("Login 3/3", self.screen(USER)["content"])
         self.assertIn("editMessageCaption", self.tg.methods())
 
     def test_purchase_log_shows_login_info(self):
@@ -1194,7 +1195,7 @@ class ProductImageTests(BotTestCase):
         self.assertEqual(screen["kind"], "photo")
         self.assertEqual(screen["photo"], "fid:" + self.IMAGE)  # reaproveita a foto da prévia do admin
         self.assertIn("Curso Teste", screen["content"])
-        self.assertIn("Login 1 de 1", screen["content"])
+        self.assertIn("Login 1/1", screen["content"])
         self.assertNotIn((USER, catalog_id), self.tg.messages)  # painel antigo foi trocado pela foto
 
         self.click(USER, "buy:1")  # a entrega volta a ser texto
@@ -1216,7 +1217,7 @@ class ProductImageTests(BotTestCase):
         self.send(USER, "/start")
         self.click(USER, "product:1")
         self.assertEqual(self.screen(USER)["kind"], "text")
-        self.assertIn("Login 1 de 1", self.screen(USER)["content"])
+        self.assertIn("Login 1/1", self.screen(USER)["content"])
 
         self.click(ADMIN, "adm:p:1:img")
         self.send(ADMIN, "0")

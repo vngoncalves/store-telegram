@@ -278,29 +278,30 @@ def _login_info_lines(access):
     orders = access.get("orders")
     total = access.get("total")
     return [
-        "📋 <b>Informações do login</b>",
-        f" ├ 🧾 Quantidade de pedidos: <b>{orders if orders is not None else '—'}</b>",
-        f" └ 💰 Valor total dos pedidos: <b>{validators.money(total) if total is not None else '—'}</b>",
+        f"🧾 Pedidos: {orders if orders is not None else '—'}",
+        f"💰 Total em pedidos: {validators.money(total) if total is not None else '—'}",
     ]
 
 
 def product_login_text(product, accesses, index, caption=False):
-    """Tela do produto para o cliente: um login por vez, com 'Login X de Y' no topo."""
+    """Tela do produto para o cliente: um login por vez, com 'Login X/Y' no topo."""
     total = len(accesses)
-    position = f"🔐 <b>Login {index + 1} de {total}</b>" if total else "🔐 <b>Sem logins</b>"
     raw_description = product["description"] or ""
     if caption and len(raw_description) > 600:
         raw_description = raw_description[:600].rstrip() + "…"
-    lines = [f"📦 <b>{escape(product['name'])}</b>   ·   {position}"]
+    header = f"📦 <b>{escape(product['name'])}</b>"
+    if total:
+        header += f"  ·  Login {index + 1}/{total}"
+    lines = [header]
     if raw_description:
         lines += ["", escape(raw_description)]
     lines.append("")
     if total:
         lines += _login_info_lines(accesses[index])
-        lines += ["", f"💵 Preço: <b>{validators.money(product['price'])}</b>"]
+        lines.append(f"💵 Preço: <b>{validators.money(product['price'])}</b>")
     else:
         lines += [f"💵 Preço: <b>{validators.money(product['price'])}</b>", "",
-                  "⚠️ Nenhum login disponível no momento. Volte mais tarde!"]
+                  "⚠️ Sem logins no momento. Volte mais tarde!"]
     return "\n".join(lines)
 
 
