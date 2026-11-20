@@ -65,6 +65,12 @@ PRODUCTS_FILE = os.getenv("PRODUCTS_FILE", "produtos.json").strip() or "produtos
 HOME_IMAGE_URL = os.getenv("HOME_IMAGE_URL", "").strip()
 
 
+# Canal obrigatório: só quem é membro pode usar a loja (vazio = desligado).
+# O bot precisa ser administrador do canal para ver quem é membro.
+REQUIRED_CHANNEL_ID = os.getenv("REQUIRED_CHANNEL_ID", "").strip()
+REQUIRED_CHANNEL_LINK = os.getenv("REQUIRED_CHANNEL_LINK", "").strip()
+
+
 # Canal de logs (ex.: -1001234567890). Também pode ser definido no painel admin → ⚙️ Configurações.
 LOG_CHANNEL_ID = os.getenv("LOG_CHANNEL_ID", "").strip()
 

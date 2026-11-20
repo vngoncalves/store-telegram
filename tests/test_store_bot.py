@@ -20,6 +20,8 @@ os.environ.update({
     "STORE_CHANNEL": "canal_teste",
     "DATA_FILE": os.path.join(TMP_DIR, "store.json"),
     "PRODUCTS_FILE": os.path.join(TMP_DIR, "produtos.json"),
+    # vazios de propósito: os testes não podem herdar o canal/imagens do .env real
+    "REQUIRED_CHANNEL_ID": "", "REQUIRED_CHANNEL_LINK": "", "LOG_CHANNEL_ID": "", "HOME_IMAGE_URL": "",
     "ROASCLUB_PUBLIC_KEY": "pk_test",
     "ROASCLUB_SECRET_KEY": "sk_test",
     "ROASCLUB_CUSTOMER_NAME": "Loja Exemplo Ltda",
@@ -1379,6 +1381,139 @@ class HomeMenuTests(BotTestCase):
         self.send(USER, "/start")
         data = [d for m, d in self.tg.calls if m == "sendMessage" and d["chat_id"] == USER][-1]
         self.assertEqual(json.loads(data["link_preview_options"]), {"is_disabled": True})
+
+
+class ChannelGateTests(BotTestCase):
+    CHANNEL = "-1004310037319"
+    LINK = "https://t.me/vorkloginsrefs"
+
+    def setUp(self):
+        super().setUp()
+        from loja import gate
+        self.gate = gate
+        self._config = (config.REQUIRED_CHANNEL_ID, config.REQUIRED_CHANNEL_LINK)
+        config.REQUIRED_CHANNEL_ID, config.REQUIRED_CHANNEL_LINK = self.CHANNEL, self.LINK
+        gate._member_until.clear()
+        gate._pending.clear()
+        self.members = set()
+        original_call = self.tg.call
+
+        def call(method, data=None, timeout=45):
+            if method == "getChatMember" and str((data or {}).get("chat_id")) == self.CHANNEL:
+                self.tg.calls.append((method, dict(data)))
+                uid = int(data["user_id"])
+                return {"status": "member" if uid in self.members else "left"}
+            return original_call(method, data, timeout)
+
+        telegram_api.call = call
+        storage.DEFAULT_SETTINGS["welcome_bonus"] = "10.00"
+
+    def tearDown(self):
+        config.REQUIRED_CHANNEL_ID, config.REQUIRED_CHANNEL_LINK = self._config
+        self.gate._pending.clear()
+        super().tearDown()
+
+    def last_markup(self, chat_id):
+        data = [d for m, d in self.tg.calls if d.get("chat_id") == chat_id and "reply_markup" in d][-1]
+        return json.loads(data["reply_markup"])["inline_keyboard"]
+
+    def test_non_member_sees_gate_and_gets_no_bonus(self):
+        self.send(USER, "/start")
+        content = self.screen(USER)["content"]
+        self.assertIn("Acesso exclusivo para membros", content)
+        self.assertIn(self.LINK, content)
+        self.assertIn("R$ 10,00", content)  # avisa do bônus que vai ganhar
+        self.assertEqual(self.last_markup(USER), [
+            [{"text": "📢 Acessar", "url": self.LINK}],
+            [{"text": "✅ Verificar acesso", "callback_data": "gate:check"}],
+        ])
+        self.assertEqual(storage.get_user(USER)["balance"], "0.00")  # bônus ainda não liberado
+        self.assertIn(USER, self.gate._pending)  # verificação automática ligada
+
+        self.click(USER, "catalog")  # qualquer botão continua barrado
+        self.assertIn("Acesso exclusivo", self.screen(USER)["content"])
+        self.click(USER, "gate:check")
+        alert = [d for m, d in self.tg.calls if m == "answerCallbackQuery"][-1]
+        self.assertEqual(alert["show_alert"], "true")
+        self.assertIn("ainda não entrou", alert["text"])
+
+    def test_verify_button_releases_and_pays_welcome_once(self):
+        self.send(USER, "/start")
+        self.members.add(USER)
+        self.click(USER, "gate:check")
+        self.assertEqual(storage.get_user(USER)["balance"], "10.00")
+        self.assertIn("Acesso liberado", self.screen(USER)["content"])
+        self.assertIn("Carteira", self.screen(USER)["content"])
+        welcome = [d["text"] for m, d in self.tg.calls if m == "sendMessage" and "boas-vindas creditado" in d["text"]]
+        self.assertEqual(len(welcome), 1)
+        self.assertNotIn(USER, self.gate._pending)
+        self.click(USER, "gate:check")
+        self.send(USER, "/start")
+        self.assertEqual(storage.get_user(USER)["balance"], "10.00")  # não paga de novo
+
+    def test_automatic_release_when_user_joins(self):
+        self.send(USER, "/start")
+        gate_panel = panels.active_menu_message_id(USER)
+        self.gate.check_pending_once()  # ainda não entrou
+        self.assertEqual(storage.get_user(USER)["balance"], "0.00")
+        self.members.add(USER)
+        self.gate.check_pending_once()  # entrou: libera sozinho
+        self.assertEqual(storage.get_user(USER)["balance"], "10.00")
+        self.assertEqual(panels.active_menu_message_id(USER), gate_panel)  # a tela do canal virou o menu
+        self.assertIn("Acesso liberado", self.screen(USER)["content"])
+        self.assertNotIn(USER, self.gate._pending)
+
+    def test_referral_bonus_only_after_joining(self):
+        self.members.add(700)
+        self.send(700, "/start")
+        self.send(800, "/start 700")
+        self.assertEqual(storage.get_user(700)["balance"], "10.00")  # só as boas-vindas dele
+        self.assertEqual(storage.get_user(800)["referred_by"], 700)
+        self.members.add(800)
+        self.gate.check_pending_once()
+        self.assertEqual(storage.get_user(700)["balance"], "15.00")  # +5 da indicação
+        self.assertEqual(storage.get_user(800)["balance"], "10.00")
+
+    def test_member_check_is_cached(self):
+        self.members.add(USER)
+        self.send(USER, "/start")
+        for _ in range(3):
+            self.click(USER, "profile")
+        checks = [d for m, d in self.tg.calls if m == "getChatMember" and str(d["chat_id"]) == self.CHANNEL]
+        self.assertEqual(len(checks), 1)
+
+    def test_admin_skips_gate(self):
+        self.send(ADMIN, "/admin")
+        self.assertIn("Painel administrativo", self.screen(ADMIN)["content"])
+
+    def test_leaving_channel_blocks_again_after_cache(self):
+        self.members.add(USER)
+        self.send(USER, "/start")
+        self.members.discard(USER)
+        self.gate._member_until.clear()  # cache expirou
+        self.click(USER, "catalog")
+        self.assertIn("Acesso exclusivo", self.screen(USER)["content"])
+
+    def test_check_failure_does_not_block_store(self):
+        original = telegram_api.call
+
+        def failing(method, data=None, timeout=45):
+            if method == "getChatMember":
+                raise telegram_api.TelegramAPIError("400", 400, "Bad Request: member list is inaccessible")
+            return original(method, data, timeout)
+
+        telegram_api.call = failing
+        self.send(USER, "/start")
+        self.assertIn("Carteira", self.screen(USER)["content"])
+
+    def test_inline_search_requires_channel(self):
+        storage.create_product("Algo", "", Decimal("10"))
+        handlers.process_update({"update_id": 3, "inline_query": {
+            "id": "iq", "from": {"id": USER}, "query": "", "offset": "", "chat_type": "sender",
+        }})
+        data = [d for m, d in self.tg.calls if m == "answerInlineQuery"][-1]
+        self.assertEqual(json.loads(data["results"]), [])
+        self.assertIn("Entre no canal", data["button"])
 
 
 class BroadcastTests(BotTestCase):

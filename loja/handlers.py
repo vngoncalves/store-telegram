@@ -8,7 +8,7 @@ from html import escape
 import qrcode.exceptions
 
 from . import (
-    broadcast, config, keyboards, logs, panels, payments, security, storage, telegram_api, validators, views,
+    broadcast, config, gate, keyboards, logs, panels, payments, security, storage, telegram_api, validators, views,
 )
 
 
@@ -129,6 +129,13 @@ def handle_inline_query(query):
         telegram_api.call("answerInlineQuery", {
             "inline_query_id": query["id"], "results": "[]", "cache_time": 0, "is_personal": "true",
             "button": json.dumps({"text": "🛍 Abrir a loja no privado", "start_parameter": "loja"}),
+        })
+        return
+    searcher = (query.get("from") or {}).get("id")
+    if searcher and not passes_gate(searcher):
+        telegram_api.call("answerInlineQuery", {
+            "inline_query_id": query["id"], "results": "[]", "cache_time": 0, "is_personal": "true",
+            "button": json.dumps({"text": "🔒 Entre no canal para ver os logins", "start_parameter": "canal"}),
         })
         return
     words = _fold(query.get("query", "")).split()
@@ -789,21 +796,69 @@ def register_referral(user, text):
     parts = text.split(maxsplit=1)
     if len(parts) < 2 or not parts[1].strip().isdigit():
         return
-    referrer_id = int(parts[1].strip())
-    bonus = storage.set_referrer(user["id"], referrer_id)
-    if bonus is None:
-        return
-    name = escape(user.get("first_name") or "Um novo usuário")
-    referral_bonus = storage.get_settings()["referral_bonus"]
-    if bonus > 0:
-        reward = f"💰 Você recebeu <b>{validators.money(bonus)}</b> de bônus de indicação."
-    elif referral_bonus > 0:
-        reward = f"🎁 Você ganha <b>{validators.money(referral_bonus)}</b> quando ele fizer o 1º depósito."
-    else:
-        reward = ""
-    notify(referrer_id, f"🎉 <b>Novo indicado!</b>\n\n<b>{name}</b> entrou pelo seu link.\n{reward}".rstrip())
-    if bonus > 0:
-        logs.referral_bonus(referrer_id, user["id"], bonus, "ao entrar pelo link")
+    # Só liga o indicado a quem indicou; o bônus e o aviso vêm na liberação (onboard).
+    storage.set_referrer(user["id"], int(parts[1].strip()))
+
+
+def onboard(chat_id, user_id):
+    """Libera o usuário novo uma vez: boas-vindas, bônus de indicação, avisos e log.
+
+    Roda no primeiro acesso ou, com canal obrigatório, quando ele entra no canal.
+    """
+    result = storage.complete_onboarding(user_id)
+    if result is None:
+        return False
+    logs.new_user(user_id)
+    send_welcome_bonus_message(chat_id, user_id)
+    referrer_id = result["referrer_id"]
+    if referrer_id:
+        name = escape((storage.get_user(user_id) or {}).get("first_name") or "Um novo usuário")
+        bonus = result["referral_bonus"]
+        settings_bonus = storage.get_settings()["referral_bonus"]
+        if bonus > 0:
+            reward = f"💰 Você recebeu <b>{validators.money(bonus)}</b> de bônus de indicação."
+            logs.referral_bonus(referrer_id, user_id, bonus, "ao entrar pelo link")
+        elif settings_bonus > 0:
+            reward = f"🎁 Você ganha <b>{validators.money(settings_bonus)}</b> quando ele fizer o 1º depósito."
+        else:
+            reward = ""
+        notify(referrer_id, f"🎉 <b>Novo indicado!</b>\n\n<b>{name}</b> entrou pelo seu link.\n{reward}".rstrip())
+    return True
+
+
+def gate_text(user_id):
+    pending_bonus = ""
+    user = storage.get_user(user_id) or {}
+    welcome = storage.get_settings()["welcome_bonus"]
+    if not user.get("onboarded", True) and welcome > 0:
+        pending_bonus = f"\n🎁 Ao entrar, você recebe <b>{validators.money(welcome)}</b> de boas-vindas!\n"
+    link = gate.channel_link()
+    return (
+        "🔒 <b>Acesso exclusivo para membros</b>\n\n"
+        "Para usar a loja, entre no nosso canal:\n"
+        + (f"👉 {escape(link)}\n" if link else "")
+        + pending_bonus
+        + "\nDepois de entrar, toque em <b>✅ Verificar acesso</b>. "
+        "Se preferir, só aguarde: a liberação é automática."
+    )
+
+
+def show_gate(chat_id, user_id, message_id=None, fresh=False):
+    """Tela de canal obrigatório + coloca o usuário na verificação automática."""
+    show_screen(chat_id, message_id, gate_text(user_id), keyboards.gate_menu(gate.channel_link()), fresh=fresh)
+    gate.watch(user_id, chat_id, on_gate_join)
+
+
+def on_gate_join(user_id, chat_id):
+    """Chamado pela verificação automática quando o usuário entra no canal."""
+    gate.out(f"usuário {user_id} entrou no canal: acesso liberado")
+    STATES.pop(user_id, None)
+    onboard(chat_id, user_id)
+    home(chat_id, user_id, note="✅ <b>Acesso liberado!</b> Obrigado por entrar no canal.")
+
+
+def passes_gate(user_id):
+    return is_admin(user_id) or gate.is_member(user_id)
 
 
 def on_pix_confirmed(deposit_id):
@@ -942,9 +997,13 @@ def handle_message(message):
     command = text.split(maxsplit=1)[0].split("@", 1)[0] if text else ""
     if command == "/start" and is_new_user:
         register_referral(user, text)
-    if is_new_user:
-        logs.new_user(user_id)
-        send_welcome_bonus_message(chat_id, user_id)
+    # Primeira coisa: canal obrigatório. Quem não é membro só vê a tela de acesso.
+    if not passes_gate(user_id):
+        STATES.pop(user_id, None)
+        show_gate(chat_id, user_id, fresh=True)
+        return
+    gate.unwatch(user_id)
+    onboard(chat_id, user_id)  # só faz algo na primeira vez (boas-vindas e indicação)
     if command == "/pix":
         request_pix_amount(chat_id, user_id)
         return
@@ -1164,11 +1223,33 @@ def handle_callback(query):
     data = query.get("data", "")
     if not user_id or not chat_id:
         return
-    if storage.ensure_user(user):
-        logs.new_user(user_id)  # primeiro contato veio por um botão, não pelo /start
-        send_welcome_bonus_message(chat_id, user_id)
+    storage.ensure_user(user)
     if message_id is not None:
         panels.remember_active_menu(chat_id, message_id, media="photo" if message.get("photo") else "text")
+    # Canal obrigatório antes de qualquer botão.
+    if not passes_gate(user_id):
+        alert = "Você ainda não entrou no canal. Entre e tente de novo." if data == "gate:check" \
+            else "Entre no canal para usar a loja."
+        try:
+            telegram_api.answer_callback(query["id"], text=alert, show_alert=data == "gate:check")
+        except Exception as exc:
+            print("Não foi possível responder ao botão:", exc)
+        STATES.pop(user_id, None)
+        try:
+            show_gate(chat_id, user_id, message_id)
+        except Exception as exc:
+            print("Não foi possível mostrar a tela do canal obrigatório:", exc)
+        return
+    gate.unwatch(user_id)
+    newly_onboarded = onboard(chat_id, user_id)  # primeiro acesso liberado (pode ter vindo de um botão)
+    if data == "gate:check":
+        try:
+            telegram_api.answer_callback(query["id"], text="✅ Acesso liberado!")
+        except Exception as exc:
+            print("Não foi possível responder ao botão:", exc)
+        note = "✅ <b>Acesso liberado!</b> Obrigado por entrar no canal." if newly_onboarded or gate.enabled() else None
+        home(chat_id, user_id, message_id, note=note)
+        return
     if data != "wallet:deposit" and not data.startswith("pix:"):
         ACTIVE_PIX_DEPOSITS.pop(chat_id, None)
     try:

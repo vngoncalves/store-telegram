@@ -2,7 +2,7 @@
 import os
 import time
 
-from . import config, handlers, logs, payments, storage, telegram_api
+from . import config, gate, handlers, logs, payments, storage, telegram_api
 
 
 def startup_checks():
@@ -34,6 +34,10 @@ def startup_checks():
         logs.startup_report()
     except Exception as exc:
         print("Aviso: não foi possível verificar o canal de logs:", exc)
+    try:
+        gate.startup_report()
+    except Exception as exc:
+        print("Aviso: não foi possível verificar o canal obrigatório:", exc)
     problems = payments.pix_config_problems()
     if problems:
         print("Aviso: recarga via Pix desativada —", "; ".join(problems) + ".")

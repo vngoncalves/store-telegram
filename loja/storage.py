@@ -206,12 +206,35 @@ def ensure_user(tg_user):
         if not unchanged or created:
             user["updated_at"] = _now()
         if created:
-            welcome = Decimal(_settings(data)["welcome_bonus"])
-            if welcome > 0:
-                _credit(data, tg_user["id"], welcome, "Bônus de boas-vindas")
-                user["welcome_bonus"] = str(welcome)
+            # Bônus só depois da liberação (complete_onboarding), ex.: após entrar no canal obrigatório.
+            user["onboarded"] = False
         _write(data)
         return created
+
+
+def complete_onboarding(user_id):
+    """Libera o usuário novo uma única vez: paga as boas-vindas e o bônus de indicação (se for na entrada).
+
+    Retorna None se ele já tinha sido liberado; senão {"welcome", "referral_bonus", "referrer_id"}.
+    Usuários antigos (sem o campo "onboarded") contam como já liberados.
+    """
+    with _LOCK:
+        data = _read()
+        user = data["users"].get(str(user_id))
+        if not user or user.get("onboarded", True):
+            return None
+        user["onboarded"] = True
+        settings = _settings(data)
+        welcome = Decimal(settings["welcome_bonus"])
+        if welcome > 0:
+            _credit(data, user_id, welcome, "Bônus de boas-vindas")
+            user["welcome_bonus"] = str(welcome)
+        referral = Decimal("0.00")
+        if not settings["referral_requires_deposit"]:
+            referral = _pay_referral_bonus(data, user_id)
+        _write(data)
+        return {"welcome": welcome if welcome > 0 else Decimal("0.00"), "referral_bonus": referral,
+                "referrer_id": user.get("referred_by")}
 
 
 def _settings(data):
@@ -290,7 +313,10 @@ def _add_referral_earning(data, referrer_id, amount):
 
 
 def set_referrer(user_id, referrer_id):
-    """Liga um usuário novo a quem o indicou. Retorna o bônus pago agora (ou None se não ligou)."""
+    """Liga um usuário novo a quem o indicou. Retorna True se ligou.
+
+    O bônus é pago depois: na liberação do indicado (complete_onboarding) ou no 1º depósito dele.
+    """
     with _LOCK:
         data = _read()
         user = data["users"].get(str(user_id))
@@ -302,11 +328,8 @@ def set_referrer(user_id, referrer_id):
         user["referred_by"] = int(referrer_id)
         user["referred_at"] = _now()
         user["referral_bonus_paid"] = False
-        bonus = Decimal("0.00")
-        if not _settings(data)["referral_requires_deposit"]:
-            bonus = _pay_referral_bonus(data, user_id)
         _write(data)
-        return bonus
+        return True
 
 
 def referral_stats(user_id):

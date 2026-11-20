@@ -20,6 +20,14 @@ def main_menu(admin=False):
     return inline(rows)
 
 
+def gate_menu(channel_link=None):
+    rows = []
+    if channel_link:
+        rows.append([{"text": "📢 Acessar", "url": channel_link}])
+    rows.append([{"text": "✅ Verificar acesso", "callback_data": "gate:check"}])
+    return inline(rows)
+
+
 def profile_menu(referral_link=None):
     row = [{"text": "📦 Minhas compras", "callback_data": "history"}]
     if referral_link:

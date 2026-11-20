@@ -159,6 +159,16 @@ Os comandos `/admin` e `/saldo` são restritos aos administradores. No painel, e
 - **➖ Remover 1** / **🧹 Esvaziar estoque**: retira os acessos mais recentes.
 - **💵 Preço**, **✏️ Nome**, **📝 Descrição**, **⏸ Pausar/▶️ Ativar vendas** e **🗑 Excluir produto**. As compras já feitas continuam no histórico do cliente.
 
+### Canal obrigatório
+
+Com `REQUIRED_CHANNEL_ID` e `REQUIRED_CHANNEL_LINK` no `.env`, só quem é membro do canal usa a loja (o admin sempre passa). **O bot precisa ser administrador do canal** para ver quem é membro; o diagnóstico aparece no terminal ao iniciar (`[CANAL]`).
+
+- Quem não é membro recebe a mensagem com o link do canal e os botões **📢 Acessar** e **✅ Verificar acesso**.
+- A verificação também é **automática**: uma thread em segundo plano confere a cada poucos segundos (por até 30 minutos) e libera a loja sozinha quando a pessoa entra, sem atrasar os outros usuários.
+- O **bônus de boas-vindas** e o **bônus de indicação** (quando pago na entrada) só são creditados depois que o novo usuário entra no canal.
+- Membro confirmado fica 10 minutos em cache, então os cliques seguintes não consultam o Telegram de novo.
+- Se o bot não conseguir consultar o canal (por exemplo, perdeu o cargo de admin), a loja **não** trava: fica liberada e o motivo aparece no terminal.
+
 ### Transmitir mensagem
 
 `/admin` → **📢 Transmitir mensagem**. Envie para o bot a mensagem do jeito que ela deve chegar: texto (com formatação), foto, foto com legenda, vídeo, GIF, arquivo, áudio, voz, figurinha, enquete ou um álbum. O bot mostra o tipo da mensagem e quantas pessoas vão receber, e só envia depois de **✅ Enviar**.
