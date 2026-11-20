@@ -266,7 +266,7 @@ class MenuTests(BotTestCase):
         self.send(USER, "/start")
         self.click(USER, "profile")
         self.click(USER, "profile")
-        self.assertIn("MEU PERFIL", self.screen(USER)["content"])
+        self.assertIn("Meu perfil", self.screen(USER)["content"])
 
     def test_non_admin_cannot_open_admin_panel(self):
         self.send(USER, "/start")
@@ -637,6 +637,29 @@ class CatalogTests(BotTestCase):
         self.assertEqual(data["next_offset"], "50")
 
 
+class ProfileLayoutTests(BotTestCase):
+    def test_clean_profile(self):
+        self.send(USER, "/start")
+        self.click(USER, "profile")
+        content = self.screen(USER)["content"]
+        self.assertEqual(content.split("\n")[0], "👤 <b>Meu perfil</b>")
+        for removed in ("Cliente desde", "Total gasto", "já depositaram", "Informações pessoais",
+                        "Toque em 📋 Copiar link", "Nome:"):
+            self.assertNotIn(removed, content)
+        # só o essencial em negrito: título, saldo, valor do bônus e ganhos
+        self.assertEqual(content.count("<b>"), 4)
+
+    def test_referral_block_hidden_when_bonus_disabled(self):
+        storage.update_settings(referral_bonus="0")
+        self.send(USER, "/start")
+        self.click(USER, "profile")
+        content = self.screen(USER)["content"]
+        self.assertNotIn("Indicados", content)
+        self.assertNotIn("t.me/", content)
+        rows = json.loads(self.tg.calls[-1][1]["reply_markup"])["inline_keyboard"]
+        self.assertEqual(len(rows[0]), 1)  # sem o botão de copiar link
+
+
 class ReferralTests(BotTestCase):
     REFERRER = 700
     FRIEND = 800
@@ -656,8 +679,8 @@ class ReferralTests(BotTestCase):
         self.send(USER, "/start")
         self.click(USER, "profile")
         content = self.screen(USER)["content"]
-        for expected in ("MEU PERFIL", f"ID: <code>{USER}</code>", "Saldo: <b>R$ 0,00</b>",
-                         "Indicados: <b>0</b>", "Ganhe <b>R$ 5,00</b> por indicado",
+        for expected in ("Meu perfil", f"ID: <code>{USER}</code>", "Saldo: <b>R$ 0,00</b>",
+                         "Indicados: 0", "Ganhe <b>R$ 5,00</b> por amigo que entrar pelo seu link",
                          f"https://t.me/loja_teste_bot?start={USER}"):
             self.assertIn(expected, content)
         rows = json.loads(self.tg.calls[-1][1]["reply_markup"])["inline_keyboard"]
@@ -677,8 +700,8 @@ class ReferralTests(BotTestCase):
         self.assertEqual(storage.get_user(self.REFERRER)["balance"], "5.00")
         self.click(self.REFERRER, "profile")
         content = self.screen(self.REFERRER)["content"]
-        self.assertIn("pago assim que ele entrar pelo link", content)
-        self.assertIn("Total ganho: <b>R$ 5,00</b>", content)
+        self.assertIn("que entrar pelo seu link", content)
+        self.assertIn("Ganhos: <b>R$ 5,00</b>", content)
 
     def test_referral_pays_5_once_on_first_deposit(self):
         storage.update_settings(referral_requires_deposit=True)
@@ -701,7 +724,7 @@ class ReferralTests(BotTestCase):
         self.assertEqual((stats["count"], stats["active"], stats["earnings"]), (1, 1, Decimal("5.00")))
 
         self.click(self.REFERRER, "profile")
-        self.assertIn("Total ganho: <b>R$ 5,00</b>", self.screen(self.REFERRER)["content"])
+        self.assertIn("Ganhos: <b>R$ 5,00</b>", self.screen(self.REFERRER)["content"])
 
     def test_referral_rejects_self_existing_users_and_unknown_referrer(self):
         self.send(USER, f"/start {USER}")  # a si mesmo
@@ -1275,7 +1298,7 @@ class HomeMenuTests(BotTestCase):
         self.click(USER, "profile")  # foto diferente: troca no lugar, mesma mensagem
         self.assertEqual(panels.active_menu_message_id(USER), photo_message)
         self.assertEqual(self.screen(USER)["photo"], images["profile_image_url"])  # 1º envio: pelo link
-        self.assertIn("MEU PERFIL", self.screen(USER)["content"])
+        self.assertIn("Meu perfil", self.screen(USER)["content"])
 
         self.click(USER, "wallet:deposit")
         self.assertIn("saldo.jpg", self.screen(USER)["photo"])

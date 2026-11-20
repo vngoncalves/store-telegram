@@ -148,42 +148,24 @@ def profile_view(user_id):
     purchases = storage.purchase_stats(user_id)
     settings = storage.get_settings()
     link = referral_link(user_id)
-    name = escape(user.get("first_name") or "—")
-    username = f" (@{escape(user['username'])})" if user.get("username") else ""
-    if settings["referral_bonus"] <= 0:
-        how_it_pays = "indicação sem bônus no momento"
-    elif settings["referral_requires_deposit"]:
-        how_it_pays = "pago quando ele fizer o 1º depósito"
-    else:
-        how_it_pays = "pago assim que ele entrar pelo link"
     lines = [
-        "👤 <b>MEU PERFIL</b>",
+        "👤 <b>Meu perfil</b>",
         "",
-        "📋 <b>Informações pessoais</b>",
-        f" ├ 👤 Nome: <b>{name}</b>{username}",
-        f" ├ 🆔 ID: <code>{user_id}</code>",
-        f" └ 📅 Cliente desde: <b>{_date_label(user.get('created_at'))[:10]}</b>",
-        "",
-        "💼 <b>Carteira</b>",
-        f" ├ 💸 Saldo: <b>{validators.money(user['balance'])}</b>",
-        f" ├ 🛍 Compras: <b>{purchases['count']}</b>",
-        f" └ 💳 Total gasto: <b>{validators.money(purchases['spent'])}</b>",
-        "",
-        "🤝 <b>Indique e ganhe</b>",
-        f" ├ 🎁 Ganhe <b>{validators.money(settings['referral_bonus'])}</b> por indicado",
-        f" │   <i>({how_it_pays})</i>",
-        f" ├ 👥 Indicados: <b>{referrals['count']}</b> ({referrals['active']} já depositaram)",
-        f" └ 💰 Total ganho: <b>{validators.money(referrals['earnings'])}</b>",
+        f"🆔 ID: <code>{user_id}</code>",
+        f"💸 Saldo: <b>{validators.money(user['balance'])}</b>",
+        f"🛍 Compras: {purchases['count']}",
     ]
-    if link:
+    bonus = settings["referral_bonus"]
+    if bonus > 0:
+        when = "que fizer o 1º depósito" if settings["referral_requires_deposit"] else "que entrar pelo seu link"
         lines += [
             "",
-            "🔗 <b>Seu link de indicação:</b>",
-            f"<code>{escape(link)}</code>",
-            "<i>Toque em 📋 Copiar link e envie para quem quiser indicar. "
-            "Os ganhos caem direto no seu saldo.</i>",
+            f"🤝 Ganhe <b>{validators.money(bonus)}</b> por amigo {when}.",
+            f"👥 Indicados: {referrals['count']}  ·  💰 Ganhos: <b>{validators.money(referrals['earnings'])}</b>",
         ]
-    return "\n".join(lines), keyboards.profile_menu(link)
+        if link:
+            lines += ["", "🔗 Seu link:", f"<code>{escape(link)}</code>"]
+    return "\n".join(lines), keyboards.profile_menu(link if bonus > 0 else None)
 
 
 def home_text(user_id):
